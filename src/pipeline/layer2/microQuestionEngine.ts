@@ -12,7 +12,7 @@ const SEVERITY_RANK: Record<GapSeverity, number> = {
   [GapSeverity.LOW]: 1,
 };
 
-function buildQuestion(targetGap: KnowledgeGap): string {
+export function buildQuestionFromKnowledgeGap(targetGap: KnowledgeGap): string {
   const normalizedGap = targetGap.gap.toLowerCase();
   const acronymMatch = targetGap.gap.match(/Undefined acronym:\s*([^ ]+)/i);
   const pronounMatch = targetGap.gap.match(/Ambiguous pronoun:\s*([^ ]+)/i);
@@ -55,7 +55,7 @@ export function generateMicroQuestion(
   }
 
   return {
-    question: buildQuestion(highestSeverityGap),
+    question: buildQuestionFromKnowledgeGap(highestSeverityGap),
     targetGap: highestSeverityGap,
   };
 }

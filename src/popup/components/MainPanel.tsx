@@ -2,6 +2,7 @@ import ABTester, { type AbTesterVariant } from './ABTester';
 import ComplexityBadge from './ComplexityBadge';
 import CommandGatePrompt from './CommandGatePrompt';
 import DiffViewer from './DiffViewer';
+import EnhancedClarificationPrompt from './EnhancedClarificationPrompt';
 import HistoryPreview from './HistoryPreview';
 import InputArea from './InputArea';
 import MicroQuestionPrompt from './MicroQuestionPrompt';
@@ -22,8 +23,10 @@ export interface MainPanelProps {
   onRemoveImage: () => void;
   onScopeSelection: (option: string) => void;
   onSubmit: () => void;
+  onSubmitEnhancedClarification: () => void;
   onSubmitMicroQuestion: () => void;
   onToggleAbMode: (enabled: boolean) => void;
+  onToggleEnhancedMode: (enabled: boolean) => void;
 }
 
 export default function MainPanel({
@@ -39,8 +42,10 @@ export default function MainPanel({
   onScopeSelection,
   selectedWinnerHistoryEntryId,
   onSubmit,
+  onSubmitEnhancedClarification,
   onSubmitMicroQuestion,
   onToggleAbMode,
+  onToggleEnhancedMode,
 }: MainPanelProps): JSX.Element {
   return (
     <section className="flex min-h-0 flex-1 flex-col">
@@ -51,8 +56,10 @@ export default function MainPanel({
           onRemoveImage={onRemoveImage}
           onSubmit={onSubmit}
           onToggleAbMode={onToggleAbMode}
+          onToggleEnhancedMode={onToggleEnhancedMode}
         />
         <StatusBar />
+        <EnhancedClarificationPrompt onSubmit={onSubmitEnhancedClarification} />
         <MicroQuestionPrompt onSubmit={onSubmitMicroQuestion} />
         <CommandGatePrompt onCancel={onCancelCommandGate} onConfirm={onConfirmCommandGate} />
         <ScopeConfirmationPrompt onSelectOption={onScopeSelection} />

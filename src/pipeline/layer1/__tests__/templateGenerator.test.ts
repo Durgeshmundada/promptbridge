@@ -296,6 +296,7 @@ describe('templateGenerator', () => {
         vaultTimeoutMinutes: 20,
         theme: 'system',
         abModeEnabled: false,
+        enhancedModeEnabled: false,
       },
       {
         ensureReady: jest.fn().mockResolvedValue(undefined),

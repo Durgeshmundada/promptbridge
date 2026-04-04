@@ -8,6 +8,7 @@ This project currently supports:
 - Manifest V3 background service worker
 - MongoDB Atlas-backed template catalog through a local Node/Express service
 - 3-zone template matching: `DIRECT`, `PARTIAL`, and `GENERATE`
+- Enhanced Mode with dynamic 3-question clarification flow
 - session-aware template adaptation and generation
 - persona, history, ratings, theme, and vault-backed API key flows
 
@@ -32,6 +33,7 @@ LLM calls always go through the background service worker.
 - Seven-layer prompt pipeline
 - Intent classification and template matching
 - 3-zone hybrid template flow
+- Enhanced Mode with a draggable clarification modal
 - Session-aware template retrieval context
 - Persona-aware prompt shaping
 - PII redaction, command gating, and scope confirmation
@@ -216,6 +218,26 @@ PromptBridge will:
 4. enrich the prompt
 5. optionally execute the target model
 
+### Standard Mode
+
+With Enhanced Mode turned off, PromptBridge keeps the workflow simple:
+
+1. one click on `Optimize with PromptBridge`
+2. the prompt is enriched immediately
+3. the improved prompt is written back into the page or popup
+
+### Enhanced Mode
+
+With Enhanced Mode turned on, PromptBridge uses a two-step enrichment flow:
+
+1. it analyzes the prompt for missing context
+2. it asks 3 targeted clarification questions
+3. you answer only the questions that matter
+4. blank answers fall back to `Best professional choice`
+5. PromptBridge merges the answers into a stronger final prompt
+
+On supported AI sites, the Enhanced Mode clarification UI appears as a draggable modal.
+
 ## Template Catalog
 
 PromptBridge uses a database-backed template catalog.
@@ -347,6 +369,17 @@ Check:
 1. the local template server is running
 2. the first request after restart has already warmed the cache
 3. Chrome extension has been reloaded after rebuild
+
+### Enhanced Mode modal does not update or feels stuck
+
+Check:
+
+1. reload the unpacked extension in `chrome://extensions`
+2. refresh the already-open AI site tab after every rebuild
+3. make sure the local template server is running
+4. try the flow again after the tab is fully refreshed
+
+Enhanced Mode uses the latest content script, so old open tabs can keep stale logic until refreshed.
 
 ### Atlas connection fails
 

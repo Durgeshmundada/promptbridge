@@ -1,6 +1,7 @@
 import {
+  type ClarificationQuestion,
+  type ClarificationResponse,
   ConfidenceLevel,
-  GapSeverity,
   IntentType,
   ModelTarget,
   type AppSettings,
@@ -22,7 +23,7 @@ import { fillTemplateSlots } from './layer1/slotFiller';
 import { adaptTemplate, generateTemplate } from './layer1/templateGenerator';
 import { getAllTemplates, getTopMatch } from './layer1/templateMatcher';
 import { detectKnowledgeGaps } from './layer2/knowledgeGapDetector';
-import { generateMicroQuestion } from './layer2/microQuestionEngine';
+import { generateEnhancedClarificationSet } from './layer2/enhancedClarificationEngine';
 import { adaptPromptForModel } from './layer2/modelAwareAdapter';
 import { injectPersonaContext } from './layer2/personaInjector';
 import { scorePromptComplexity } from './layer2/promptComplexityScorer';
@@ -47,6 +48,7 @@ export interface ApiKeyManager {
 
 interface PipelineExecutorEvents {
   question: string;
+  clarificationSet: ClarificationQuestion[];
   commandConfirmation: string;
   scopeSelection: string[];
   stage: PipelineStageId;
@@ -63,6 +65,10 @@ type PendingInteraction =
   | {
       kind: 'question';
       resolve: (answer: string) => void;
+    }
+  | {
+      kind: 'clarificationSet';
+      resolve: (responses: ClarificationResponse[]) => void;
     }
   | {
       kind: 'commandConfirmation';
@@ -222,6 +228,25 @@ function appendBlock(base: string, heading: string, content: string): string {
   }
 
   return `${base.trim()}\n\n${heading}:\n${normalizedContent}`.trim();
+}
+
+function formatClarificationResponses(
+  questions: ClarificationQuestion[],
+  responses: ClarificationResponse[],
+): string {
+  const responsesByQuestionId = new Map(
+    responses.map((response) => [response.questionId, response]),
+  );
+
+  return questions
+    .map((question) => {
+      const response = responsesByQuestionId.get(question.id);
+      const answer = response?.answer.trim() || question.defaultAnswer;
+      const answerSuffix = response?.usedDefault ? ' (default applied)' : '';
+
+      return `Question: ${question.prompt}\nAnswer: ${answer}${answerSuffix}`;
+    })
+    .join('\n\n');
 }
 
 function prependMedicalDisclaimer(prompt: string): string {
@@ -431,6 +456,13 @@ class PipelineExecutor extends TypedEventEmitter<PipelineExecutorEvents> {
       case 'question':
         pendingInteraction.resolve(answer);
         return;
+      case 'clarificationSet':
+        this.pendingInteraction = pendingInteraction;
+        this.updateStatus('WAITING_FOR_INPUT');
+        throw new PipelineExecutorError(
+          PipelineExecutorErrorCode.NO_PENDING_INTERACTION,
+          'Use resumeWithClarificationSet() for Enhanced Mode clarification answers.',
+        );
       case 'commandConfirmation':
         pendingInteraction.resolve(parseConfirmationAnswer(answer));
         return;
@@ -442,6 +474,28 @@ class PipelineExecutor extends TypedEventEmitter<PipelineExecutorEvents> {
         throw unreachableInteraction;
       }
     }
+  }
+
+  /**
+   * Accepts a set of clarification answers for the Enhanced Mode question flow.
+   */
+  resumeWithClarificationSet(responses: ClarificationResponse[]): void {
+    if (!this.pendingInteraction || this.pendingInteraction.kind !== 'clarificationSet') {
+      throw new PipelineExecutorError(
+        PipelineExecutorErrorCode.NO_PENDING_INTERACTION,
+        'There is no enhanced clarification step waiting for answers.',
+      );
+    }
+
+    const pendingInteraction = this.pendingInteraction;
+    this.pendingInteraction = null;
+    this.updateStatus('RUNNING');
+    pendingInteraction.resolve(
+      responses.map((response) => ({
+        ...response,
+        answer: response.answer.trim(),
+      })),
+    );
   }
 
   /**
@@ -457,6 +511,29 @@ class PipelineExecutor extends TypedEventEmitter<PipelineExecutorEvents> {
       };
       this.updateStatus('WAITING_FOR_INPUT');
       this.emit('question', question);
+    });
+  }
+
+  /**
+   * Emits a three-question clarification set and waits for the caller to answer it.
+   */
+  async pauseForClarificationSet(
+    questions: ClarificationQuestion[],
+  ): Promise<ClarificationResponse[]> {
+    return new Promise<ClarificationResponse[]>((resolve) => {
+      this.assertNoPendingInteraction();
+      this.updateStage('AWAITING_ENHANCED_CLARIFICATION');
+      this.pendingInteraction = {
+        kind: 'clarificationSet',
+        resolve,
+      };
+      this.updateStatus('WAITING_FOR_INPUT');
+      this.emit(
+        'clarificationSet',
+        questions.map((question) => ({
+          ...question,
+        })),
+      );
     });
   }
 
@@ -666,19 +743,22 @@ class PipelineExecutor extends TypedEventEmitter<PipelineExecutorEvents> {
 
       this.updateStage('LAYER2_DETECT_GAPS');
       const knowledgeGaps = detectKnowledgeGaps(workingPrompt);
-      const highestSeverityGap = knowledgeGaps[0];
 
-      if (highestSeverityGap?.severity === GapSeverity.HIGH) {
-        const microQuestion = generateMicroQuestion(knowledgeGaps);
+      if (this.settings.enhancedModeEnabled) {
+        this.updateStage('LAYER2_GENERATE_ENHANCED_QUESTIONS');
+        const clarificationQuestions = await generateEnhancedClarificationSet({
+          rawInput: safeTemplateSearchInput,
+          intent: intent.intent,
+          knowledgeGaps,
+          sessionContext: templateRetrievalContext,
+        });
+        const clarificationResponses = await this.pauseForClarificationSet(clarificationQuestions);
 
-        if (microQuestion) {
-          const clarificationAnswer = await this.pauseForQuestion(microQuestion.question);
-          workingPrompt = appendBlock(
-            workingPrompt,
-            'User Clarification',
-            clarificationAnswer,
-          );
-        }
+        workingPrompt = appendBlock(
+          workingPrompt,
+          'Professional Context Answers',
+          formatClarificationResponses(clarificationQuestions, clarificationResponses),
+        );
       }
 
       this.updateStage('LAYER2_INJECT_PERSONA');

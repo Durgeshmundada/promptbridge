@@ -2,13 +2,15 @@ import PipelineExecutor, { type ApiKeyManager } from '../pipeline/PipelineExecut
 import { getAllTemplates } from '../pipeline/layer1/templateMatcher';
 import type {
   AppSettings,
+  ClarificationQuestion,
+  ClarificationResponse,
   Persona,
   PipelineInput,
   PipelineResult,
   PromptTemplate,
   SessionNode,
 } from '../types';
-import { loadAppSettings, loadPersonas } from '../utils/storage';
+import { loadAppSettings, loadPersonas, saveAppSettings } from '../utils/storage';
 
 interface PageContext {
   title: string;
@@ -25,9 +27,29 @@ type ComposerElement = HTMLInputElement | HTMLTextAreaElement | HTMLElement;
 
 interface EnhancerUi {
   shell: HTMLDivElement;
+  controls: HTMLDivElement;
   button: HTMLButtonElement;
+  enhancedModeToggle: HTMLInputElement;
+  enhancedModeLabel: HTMLLabelElement;
   status: HTMLParagraphElement;
   mountedContainer: HTMLElement | null;
+}
+
+interface ClarificationModalUi {
+  shell: HTMLDivElement;
+  header: HTMLDivElement;
+  questionsContainer: HTMLDivElement;
+  submitButton: HTMLButtonElement;
+  defaultsButton: HTMLButtonElement;
+  closeButton: HTMLButtonElement;
+}
+
+interface ClarificationQuestionCard {
+  root: HTMLDivElement;
+  headerButton: HTMLButtonElement;
+  textarea: HTMLTextAreaElement;
+  answerWrap: HTMLDivElement;
+  indicator: HTMLSpanElement;
 }
 
 interface PromptBridgeEnhancerRuntime {
@@ -55,6 +77,12 @@ const CONTENT_SESSION_STORAGE_KEY = 'pb_content_session_nodes';
 const OPTIMIZE_BUTTON_LABEL = 'Optimize with PromptBridge';
 const OPTIMIZING_BUTTON_LABEL = 'Optimizing...';
 const BUTTON_IDLE_STATUS = '';
+const ENHANCED_MODE_LABEL = 'Enhanced mode';
+const ENHANCED_MODE_MODAL_TITLE = 'PromptBridge Enhanced Mode';
+const ENHANCED_MODE_MODAL_SUBTITLE =
+  'Answer what matters. Leave anything blank and PromptBridge will use the best professional choice.';
+const ENHANCED_MODE_MODAL_SUBMIT = 'Optimize with Context';
+const ENHANCED_MODE_MODAL_DEFAULTS = 'Use Best Professional Choices';
 const SAFE_AREA_PADDING_DATA_KEY = 'promptbridgeOriginalPaddingBottom';
 const SAFE_AREA_MIN_HEIGHT_DATA_KEY = 'promptbridgeOriginalMinHeight';
 
@@ -63,6 +91,7 @@ let activeComposer: ComposerElement | null = null;
 let isEnhancing = false;
 let runtimePromise: Promise<PromptBridgeEnhancerRuntime> | null = null;
 let safeAreaComposer: ComposerElement | null = null;
+let clarificationModalUi: ClarificationModalUi | null = null;
 
 function getSelectionText(): string {
   return window.getSelection()?.toString().trim() ?? '';
@@ -254,7 +283,10 @@ function setComposerText(element: ComposerElement, value: string): void {
 
 function createEnhancerUi(): EnhancerUi {
   const shell = document.createElement('div');
+  const controls = document.createElement('div');
   const button = document.createElement('button');
+  const enhancedModeLabel = document.createElement('label');
+  const enhancedModeToggle = document.createElement('input');
   const status = document.createElement('p');
 
   shell.setAttribute('data-promptbridge-enhancer', 'true');
@@ -265,6 +297,11 @@ function createEnhancerUi(): EnhancerUi {
   shell.style.alignItems = 'flex-start';
   shell.style.gap = '6px';
   shell.style.fontFamily = 'Segoe UI, Arial, sans-serif';
+
+  controls.style.display = 'flex';
+  controls.style.alignItems = 'center';
+  controls.style.gap = '8px';
+  controls.style.flexWrap = 'wrap';
 
   button.type = 'button';
   button.textContent = OPTIMIZE_BUTTON_LABEL;
@@ -283,6 +320,25 @@ function createEnhancerUi(): EnhancerUi {
   button.style.boxShadow = '0 8px 18px rgba(124, 58, 237, 0.3)';
   button.style.whiteSpace = 'nowrap';
 
+  enhancedModeLabel.style.display = 'inline-flex';
+  enhancedModeLabel.style.alignItems = 'center';
+  enhancedModeLabel.style.gap = '8px';
+  enhancedModeLabel.style.padding = '8px 12px';
+  enhancedModeLabel.style.borderRadius = '999px';
+  enhancedModeLabel.style.background = 'rgba(15, 23, 42, 0.82)';
+  enhancedModeLabel.style.color = '#e2e8f0';
+  enhancedModeLabel.style.fontSize = '12px';
+  enhancedModeLabel.style.fontWeight = '600';
+  enhancedModeLabel.style.border = '1px solid rgba(148, 163, 184, 0.24)';
+  enhancedModeLabel.style.cursor = 'pointer';
+  enhancedModeLabel.style.userSelect = 'none';
+
+  enhancedModeToggle.type = 'checkbox';
+  enhancedModeToggle.style.margin = '0';
+  enhancedModeToggle.style.accentColor = '#7c3aed';
+
+  enhancedModeLabel.append(enhancedModeToggle, document.createTextNode(ENHANCED_MODE_LABEL));
+
   status.textContent = BUTTON_IDLE_STATUS;
   status.style.display = 'none';
   status.style.margin = '0';
@@ -294,9 +350,18 @@ function createEnhancerUi(): EnhancerUi {
   status.style.borderRadius = '10px';
   status.style.maxWidth = '320px';
 
-  shell.append(button, status);
+  controls.append(button, enhancedModeLabel);
+  shell.append(controls, status);
 
-  return { shell, button, status, mountedContainer: null };
+  return {
+    shell,
+    controls,
+    button,
+    enhancedModeToggle,
+    enhancedModeLabel,
+    status,
+    mountedContainer: null,
+  };
 }
 
 function getEnhancerUi(): EnhancerUi {
@@ -305,6 +370,31 @@ function getEnhancerUi(): EnhancerUi {
   }
 
   return enhancerUi;
+}
+
+function setEnhancedModeToggleState(enabled: boolean): void {
+  const ui = getEnhancerUi();
+  ui.enhancedModeToggle.checked = enabled;
+  ui.enhancedModeLabel.style.borderColor = enabled
+    ? 'rgba(124, 58, 237, 0.58)'
+    : 'rgba(148, 163, 184, 0.24)';
+  ui.enhancedModeLabel.style.background = enabled
+    ? 'rgba(76, 29, 149, 0.88)'
+    : 'rgba(15, 23, 42, 0.82)';
+}
+
+async function syncEnhancedModeToggleFromStorage(): Promise<void> {
+  const settings = await loadAppSettings().catch(() => null);
+  setEnhancedModeToggleState(settings?.enhancedModeEnabled ?? false);
+}
+
+async function persistEnhancedModeSetting(enabled: boolean): Promise<void> {
+  const currentSettings = await loadAppSettings();
+  await saveAppSettings({
+    ...currentSettings,
+    enhancedModeEnabled: enabled,
+  });
+  setEnhancedModeToggleState(enabled);
 }
 
 function hideEnhancerUi(): void {
@@ -326,6 +416,390 @@ function setEnhancerStatus(message: string, isError = false): void {
   ui.status.style.display = message ? 'block' : 'none';
   ui.status.style.color = isError ? '#fecaca' : '#e2e8f0';
   ui.status.style.background = isError ? 'rgba(127, 29, 29, 0.9)' : 'rgba(15, 23, 42, 0.78)';
+}
+
+function shieldKeyboardEvent(event: Event): void {
+  event.stopPropagation();
+}
+
+function ensureClarificationModalUi(): ClarificationModalUi {
+  if (clarificationModalUi) {
+    return clarificationModalUi;
+  }
+
+  const shell = document.createElement('div');
+  const header = document.createElement('div');
+  const title = document.createElement('div');
+  const subtitle = document.createElement('p');
+  const closeButton = document.createElement('button');
+  const questionsContainer = document.createElement('div');
+  const footer = document.createElement('div');
+  const defaultsButton = document.createElement('button');
+  const submitButton = document.createElement('button');
+
+  shell.setAttribute('data-promptbridge-clarification-modal', 'true');
+  shell.style.position = 'fixed';
+  shell.style.left = 'calc(50vw - 220px)';
+  shell.style.top = '96px';
+  shell.style.width = 'min(440px, calc(100vw - 32px))';
+  shell.style.maxHeight = 'min(640px, calc(100vh - 32px))';
+  shell.style.overflow = 'hidden';
+  shell.style.display = 'none';
+  shell.style.flexDirection = 'column';
+  shell.style.gap = '16px';
+  shell.style.padding = '18px';
+  shell.style.borderRadius = '24px';
+  shell.style.background = 'linear-gradient(180deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 41, 59, 0.98) 100%)';
+  shell.style.boxShadow = '0 22px 70px rgba(15, 23, 42, 0.45)';
+  shell.style.border = '1px solid rgba(124, 58, 237, 0.35)';
+  shell.style.zIndex = '2147483647';
+  shell.style.color = '#e2e8f0';
+  shell.style.fontFamily = 'Segoe UI, Arial, sans-serif';
+  shell.style.pointerEvents = 'auto';
+
+  header.style.display = 'flex';
+  header.style.alignItems = 'flex-start';
+  header.style.justifyContent = 'space-between';
+  header.style.gap = '16px';
+  header.style.cursor = 'move';
+  header.style.userSelect = 'none';
+
+  title.textContent = ENHANCED_MODE_MODAL_TITLE;
+  title.style.fontSize = '18px';
+  title.style.fontWeight = '700';
+  title.style.lineHeight = '1.4';
+
+  subtitle.textContent = ENHANCED_MODE_MODAL_SUBTITLE;
+  subtitle.style.margin = '8px 0 0';
+  subtitle.style.fontSize = '13px';
+  subtitle.style.lineHeight = '1.6';
+  subtitle.style.color = '#cbd5e1';
+
+  closeButton.type = 'button';
+  closeButton.textContent = 'Use defaults';
+  closeButton.style.border = '1px solid rgba(148, 163, 184, 0.24)';
+  closeButton.style.background = 'rgba(15, 23, 42, 0.72)';
+  closeButton.style.color = '#e2e8f0';
+  closeButton.style.borderRadius = '999px';
+  closeButton.style.padding = '8px 12px';
+  closeButton.style.fontSize = '12px';
+  closeButton.style.fontWeight = '700';
+  closeButton.style.cursor = 'pointer';
+
+  questionsContainer.style.display = 'grid';
+  questionsContainer.style.gap = '10px';
+  questionsContainer.style.overflowY = 'auto';
+  questionsContainer.style.paddingRight = '4px';
+
+  footer.style.display = 'flex';
+  footer.style.justifyContent = 'flex-end';
+  footer.style.gap = '10px';
+  footer.style.flexWrap = 'wrap';
+
+  defaultsButton.type = 'button';
+  defaultsButton.textContent = ENHANCED_MODE_MODAL_DEFAULTS;
+  defaultsButton.style.border = '1px solid rgba(148, 163, 184, 0.24)';
+  defaultsButton.style.background = 'rgba(15, 23, 42, 0.72)';
+  defaultsButton.style.color = '#e2e8f0';
+  defaultsButton.style.borderRadius = '999px';
+  defaultsButton.style.padding = '10px 14px';
+  defaultsButton.style.fontSize = '13px';
+  defaultsButton.style.fontWeight = '700';
+  defaultsButton.style.cursor = 'pointer';
+
+  submitButton.type = 'button';
+  submitButton.textContent = ENHANCED_MODE_MODAL_SUBMIT;
+  submitButton.style.border = 'none';
+  submitButton.style.background = 'linear-gradient(135deg, #7c3aed 0%, #2563eb 100%)';
+  submitButton.style.color = '#ffffff';
+  submitButton.style.borderRadius = '999px';
+  submitButton.style.padding = '10px 16px';
+  submitButton.style.fontSize = '13px';
+  submitButton.style.fontWeight = '700';
+  submitButton.style.cursor = 'pointer';
+
+  const titleBlock = document.createElement('div');
+  titleBlock.append(title, subtitle);
+  header.append(titleBlock, closeButton);
+  footer.append(defaultsButton, submitButton);
+  shell.append(header, questionsContainer, footer);
+
+  ['keydown', 'keyup', 'keypress'].forEach((eventName) => {
+    shell.addEventListener(eventName, shieldKeyboardEvent);
+  });
+  shell.addEventListener('click', (event) => {
+    event.stopPropagation();
+  });
+  shell.addEventListener('mousedown', (event) => {
+    event.stopPropagation();
+  });
+
+  document.body.append(shell);
+
+  clarificationModalUi = {
+    shell,
+    header,
+    questionsContainer,
+    submitButton,
+    defaultsButton,
+    closeButton,
+  };
+
+  return clarificationModalUi;
+}
+
+function makeModalDraggable(shell: HTMLDivElement, header: HTMLDivElement): void {
+  let dragOffsetX = 0;
+  let dragOffsetY = 0;
+  let dragging = false;
+
+  const stopDragging = (): void => {
+    dragging = false;
+    document.body.style.userSelect = '';
+  };
+
+  header.addEventListener('mousedown', (event) => {
+    if (!(event.target instanceof HTMLElement) || event.target.closest('button, textarea')) {
+      return;
+    }
+
+    dragging = true;
+    dragOffsetX = event.clientX - shell.getBoundingClientRect().left;
+    dragOffsetY = event.clientY - shell.getBoundingClientRect().top;
+    document.body.style.userSelect = 'none';
+    event.preventDefault();
+  });
+
+  window.addEventListener('mousemove', (event) => {
+    if (!dragging) {
+      return;
+    }
+
+    const nextLeft = Math.min(
+      Math.max(12, event.clientX - dragOffsetX),
+      Math.max(12, window.innerWidth - shell.offsetWidth - 12),
+    );
+    const nextTop = Math.min(
+      Math.max(12, event.clientY - dragOffsetY),
+      Math.max(12, window.innerHeight - shell.offsetHeight - 12),
+    );
+
+    shell.style.left = `${Math.round(nextLeft)}px`;
+    shell.style.top = `${Math.round(nextTop)}px`;
+  });
+
+  window.addEventListener('mouseup', stopDragging);
+  window.addEventListener('blur', stopDragging);
+}
+
+function createQuestionCard(
+  question: ClarificationQuestion,
+  index: number,
+): ClarificationQuestionCard {
+  const root = document.createElement('div');
+  const headerButton = document.createElement('button');
+  const answerWrap = document.createElement('div');
+  const textarea = document.createElement('textarea');
+  const hint = document.createElement('p');
+
+  root.style.border = '1px solid rgba(148, 163, 184, 0.2)';
+  root.style.borderRadius = '18px';
+  root.style.background = 'rgba(15, 23, 42, 0.68)';
+  root.style.overflow = 'hidden';
+
+  headerButton.type = 'button';
+  headerButton.style.width = '100%';
+  headerButton.style.display = 'flex';
+  headerButton.style.alignItems = 'center';
+  headerButton.style.justifyContent = 'space-between';
+  headerButton.style.gap = '12px';
+  headerButton.style.padding = '14px';
+  headerButton.style.border = 'none';
+  headerButton.style.background = 'transparent';
+  headerButton.style.color = '#e2e8f0';
+  headerButton.style.cursor = 'pointer';
+  headerButton.style.textAlign = 'left';
+  const headerLeft = document.createElement('span');
+  const badge = document.createElement('span');
+  const promptText = document.createElement('span');
+  const indicator = document.createElement('span');
+
+  headerLeft.style.display = 'flex';
+  headerLeft.style.alignItems = 'center';
+  headerLeft.style.gap = '12px';
+
+  badge.textContent = (index + 1).toString();
+  badge.style.display = 'inline-flex';
+  badge.style.height = '28px';
+  badge.style.width = '28px';
+  badge.style.alignItems = 'center';
+  badge.style.justifyContent = 'center';
+  badge.style.borderRadius = '999px';
+  badge.style.background = '#7c3aed';
+  badge.style.color = '#ffffff';
+  badge.style.fontSize = '12px';
+  badge.style.fontWeight = '700';
+
+  promptText.textContent = question.prompt;
+  promptText.style.fontSize = '14px';
+  promptText.style.lineHeight = '1.5';
+  promptText.style.fontWeight = '600';
+
+  indicator.textContent = 'Open';
+  indicator.style.fontSize = '11px';
+  indicator.style.letterSpacing = '0.16em';
+  indicator.style.textTransform = 'uppercase';
+  indicator.style.color = '#94a3b8';
+
+  headerLeft.append(badge, promptText);
+  headerButton.append(headerLeft, indicator);
+
+  answerWrap.style.display = 'grid';
+  answerWrap.style.gridTemplateRows = '0fr';
+  answerWrap.style.transition = 'grid-template-rows 180ms ease, opacity 180ms ease';
+  answerWrap.style.opacity = '0';
+
+  const answerInner = document.createElement('div');
+  answerInner.style.overflow = 'hidden';
+  answerInner.style.padding = '0 14px 14px';
+  answerInner.style.borderTop = '1px solid rgba(148, 163, 184, 0.16)';
+
+  textarea.placeholder = question.placeholder;
+  textarea.rows = 4;
+  textarea.style.marginTop = '14px';
+  textarea.style.width = '100%';
+  textarea.style.minHeight = '88px';
+  textarea.style.resize = 'vertical';
+  textarea.style.borderRadius = '16px';
+  textarea.style.border = '1px solid rgba(148, 163, 184, 0.24)';
+  textarea.style.background = 'rgba(30, 41, 59, 0.85)';
+  textarea.style.color = '#e2e8f0';
+  textarea.style.padding = '12px 14px';
+  textarea.style.fontSize = '13px';
+  textarea.style.lineHeight = '1.6';
+  textarea.style.outline = 'none';
+
+  hint.textContent = 'Leave blank to use the best professional choice.';
+  hint.style.margin = '8px 0 0';
+  hint.style.fontSize = '12px';
+  hint.style.lineHeight = '1.5';
+  hint.style.color = '#94a3b8';
+
+  ['keydown', 'keyup', 'keypress'].forEach((eventName) => {
+    textarea.addEventListener(eventName, shieldKeyboardEvent, true);
+  });
+
+  answerInner.append(textarea, hint);
+  answerWrap.append(answerInner);
+  root.append(headerButton, answerWrap);
+
+  return {
+    root,
+    headerButton,
+    textarea,
+    answerWrap,
+    indicator,
+  };
+}
+
+function setQuestionCardExpanded(
+  card: ClarificationQuestionCard,
+  expanded: boolean,
+): void {
+  card.answerWrap.style.gridTemplateRows = expanded ? '1fr' : '0fr';
+  card.answerWrap.style.opacity = expanded ? '1' : '0';
+  card.root.style.borderColor = expanded
+    ? 'rgba(124, 58, 237, 0.6)'
+    : 'rgba(148, 163, 184, 0.2)';
+  card.root.style.background = expanded
+    ? 'rgba(30, 41, 59, 0.92)'
+    : 'rgba(15, 23, 42, 0.68)';
+  card.indicator.textContent = expanded ? 'Editing' : 'Open';
+}
+
+async function collectClarificationResponses(
+  questions: ClarificationQuestion[],
+): Promise<ClarificationResponse[]> {
+  const modal = ensureClarificationModalUi();
+
+  if (!(modal.shell.dataset.promptbridgeDraggable === 'true')) {
+    makeModalDraggable(modal.shell, modal.header);
+    modal.shell.dataset.promptbridgeDraggable = 'true';
+  }
+
+  modal.questionsContainer.replaceChildren();
+
+  return await new Promise<ClarificationResponse[]>((resolve) => {
+    const cards = questions.map((question, index) => createQuestionCard(question, index));
+    let completed = false;
+
+    const finalize = (useDefaultsOnly: boolean): void => {
+      if (completed) {
+        return;
+      }
+
+      completed = true;
+      modal.submitButton.disabled = true;
+      modal.defaultsButton.disabled = true;
+      modal.closeButton.disabled = true;
+      modal.shell.style.display = 'none';
+      resolve(
+        cards.map((card, index) => {
+          const answer = useDefaultsOnly ? '' : card.textarea.value.trim();
+
+          return {
+            questionId: questions[index].id,
+            answer,
+            usedDefault: answer.length === 0,
+          };
+        }),
+      );
+    };
+
+    cards.forEach((card, index) => {
+      card.headerButton.addEventListener('click', () => {
+        cards.forEach((entry, entryIndex) => {
+          setQuestionCardExpanded(entry, entryIndex === index);
+        });
+        card.textarea.focus();
+      });
+      modal.questionsContainer.append(card.root);
+    });
+
+    setQuestionCardExpanded(cards[0], true);
+
+    for (let index = 1; index < cards.length; index += 1) {
+      setQuestionCardExpanded(cards[index], false);
+    }
+
+    const submitHandler = (): void => {
+      cleanup();
+      setEnhancerStatus('Applying your context to build a stronger prompt...');
+      finalize(false);
+    };
+    const defaultsHandler = (): void => {
+      cleanup();
+      setEnhancerStatus('Applying the best professional defaults...');
+      finalize(true);
+    };
+    const cleanup = (): void => {
+      modal.submitButton.removeEventListener('click', submitHandler);
+      modal.defaultsButton.removeEventListener('click', defaultsHandler);
+      modal.closeButton.removeEventListener('click', defaultsHandler);
+    };
+
+    modal.submitButton.disabled = false;
+    modal.defaultsButton.disabled = false;
+    modal.closeButton.disabled = false;
+    modal.submitButton.addEventListener('click', submitHandler);
+    modal.defaultsButton.addEventListener('click', defaultsHandler);
+    modal.closeButton.addEventListener('click', defaultsHandler);
+    modal.shell.style.display = 'flex';
+
+    window.setTimeout(() => {
+      cards[0]?.textarea.focus();
+    }, 0);
+  });
 }
 
 function isVisibleHtmlElement(element: HTMLElement): boolean {
@@ -647,6 +1121,22 @@ async function loadEnhancerRuntime(): Promise<PromptBridgeEnhancerRuntime> {
       executor.setSettings(settings);
       executor.setPersonas(personas);
       executor.setTemplateLibrary(templates);
+      executor.on('clarificationSet', (questions) => {
+        setEnhancerStatus('Enhanced Mode found missing context. Answer the questions or use defaults.');
+        void collectClarificationResponses(questions)
+          .then((responses) => {
+            executor.resumeWithClarificationSet(responses);
+          })
+          .catch(() => {
+            executor.resumeWithClarificationSet(
+              questions.map((question) => ({
+                questionId: question.id,
+                answer: '',
+                usedDefault: true,
+              })),
+            );
+          });
+      });
       executor.on('question', () => {
         executor.resumeWithAnswer('');
       });
@@ -690,6 +1180,7 @@ async function enhanceComposerPrompt(composer: ComposerElement): Promise<Pipelin
   runtime.executor.setPersonas(personas);
   runtime.executor.setTemplateLibrary(templates);
   runtime.executor.replaceSessionNodes(sessionId, persistedSessionNodes);
+  setEnhancedModeToggleState(settings.enhancedModeEnabled);
 
   const result = await runtime.executor.enhancePrompt(pipelineInput);
   await savePersistedSessionNodes(
@@ -767,6 +1258,28 @@ function installPromptEnhancer(): void {
       void handleEnhanceClick();
     }
   });
+  ui.enhancedModeToggle.addEventListener('change', () => {
+    const nextValue = ui.enhancedModeToggle.checked;
+
+    void persistEnhancedModeSetting(nextValue)
+      .then(() => {
+        setEnhancerStatus(
+          nextValue
+            ? 'Enhanced Mode enabled. PromptBridge will ask targeted clarification questions first.'
+            : 'Enhanced Mode disabled. PromptBridge is back to one-click optimization.',
+        );
+        positionEnhancer(activeComposer);
+      })
+      .catch((error) => {
+        setEnhancerStatus(
+          error instanceof Error
+            ? error.message
+            : 'PromptBridge could not save the Enhanced Mode setting.',
+          true,
+        );
+        void syncEnhancedModeToggleFromStorage();
+      });
+  });
 
   window.addEventListener('focusin', (event) => {
     refreshActiveComposer(event.target instanceof Element ? event.target : null);
@@ -798,6 +1311,7 @@ function installPromptEnhancer(): void {
     subtree: true,
   });
 
+  void syncEnhancedModeToggleFromStorage();
   refreshActiveComposer(document.activeElement instanceof Element ? document.activeElement : null);
 }
 

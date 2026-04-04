@@ -503,6 +503,38 @@ export default function SettingsPanel(_props: SettingsPanelProps): JSX.Element {
           </div>
         </div>
 
+        <div className="mt-5 rounded-[24px] border border-[var(--pb-border)] bg-[var(--pb-surface-strong)] p-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="m-0 text-sm font-medium text-[var(--pb-text)]">
+                Enhanced Mode
+              </p>
+              <p className="mt-2 text-sm text-[var(--pb-text-soft)]">
+                Turns PromptBridge into a two-step enrichment flow: detect missing context, ask
+                three targeted questions, then build a stronger final prompt.
+              </p>
+            </div>
+            <label className="inline-flex items-center gap-3 rounded-full border border-[var(--pb-border)] bg-[var(--pb-surface-muted)] px-4 py-2 text-sm font-semibold text-[var(--pb-text)]">
+              <input
+                checked={settings.enhancedModeEnabled}
+                onChange={(event) => {
+                  void persistSettings(
+                    {
+                      ...settings,
+                      enhancedModeEnabled: event.target.checked,
+                    },
+                    event.target.checked
+                      ? 'Enhanced Mode enabled for future prompt runs.'
+                      : 'Enhanced Mode disabled. PromptBridge will stay one-click again.',
+                  );
+                }}
+                type="checkbox"
+              />
+              Enable Enhanced Mode
+            </label>
+          </div>
+        </div>
+
         <div className="mt-6 flex flex-wrap gap-3">
           <button
             className="rounded-full bg-[var(--pb-accent)] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[var(--pb-accent-strong)]"

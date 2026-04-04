@@ -64,6 +64,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   vaultTimeoutMinutes: 20,
   theme: 'system',
   abModeEnabled: false,
+  enhancedModeEnabled: false,
 };
 
 /**

@@ -4,6 +4,8 @@ import { getAllTemplates, TEMPLATE_LIBRARY } from '../pipeline/layer1/templateMa
 import { saveTemplateToRuntime } from '../utils/templateServiceRuntime';
 import type {
   AppSettings,
+  ClarificationQuestion,
+  ClarificationResponse,
   HistoryEntry,
   Persona,
   PipelineInput,
@@ -47,6 +49,12 @@ export type PopupPendingInteraction =
       kind: 'question';
       prompt: string;
       answer: string;
+    }
+  | {
+      kind: 'clarificationSet';
+      questions: ClarificationQuestion[];
+      responses: ClarificationResponse[];
+      activeQuestionId: string;
     }
   | {
       kind: 'commandConfirmation';
@@ -99,6 +107,8 @@ interface PromptBridgeState {
   setPopupStatusMessage: (message: string) => void;
   setPopupPendingInteraction: (interaction: PopupPendingInteraction | null) => void;
   updatePopupQuestionAnswer: (answer: string) => void;
+  updatePopupClarificationAnswer: (questionId: string, answer: string) => void;
+  setPopupActiveClarificationQuestion: (questionId: string) => void;
   setPopupCurrentPromptId: (promptId: string) => void;
   setPopupCurrentHistoryEntryId: (historyEntryId: string) => void;
   setPopupLastSubmittedInput: (input: PipelineInput | null) => void;
@@ -336,6 +346,48 @@ export const usePromptBridgeStore = create<PromptBridgeState>((set, get) => ({
         popupPendingInteraction: {
           ...interaction,
           answer,
+        },
+      };
+    });
+  },
+  updatePopupClarificationAnswer: (questionId, answer) => {
+    set((state) => {
+      const interaction = state.popupPendingInteraction;
+
+      if (!interaction || interaction.kind !== 'clarificationSet') {
+        return state;
+      }
+
+      return {
+        popupPendingInteraction: {
+          ...interaction,
+          responses: interaction.responses.map((response) => {
+            if (response.questionId !== questionId) {
+              return response;
+            }
+
+            return {
+              ...response,
+              answer,
+              usedDefault: answer.trim().length === 0,
+            };
+          }),
+        },
+      };
+    });
+  },
+  setPopupActiveClarificationQuestion: (questionId) => {
+    set((state) => {
+      const interaction = state.popupPendingInteraction;
+
+      if (!interaction || interaction.kind !== 'clarificationSet') {
+        return state;
+      }
+
+      return {
+        popupPendingInteraction: {
+          ...interaction,
+          activeQuestionId: questionId,
         },
       };
     });

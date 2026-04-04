@@ -81,6 +81,7 @@ const TEST_SETTINGS: AppSettings = {
   vaultTimeoutMinutes: 20,
   theme: 'system',
   abModeEnabled: false,
+  enhancedModeEnabled: false,
 };
 
 const MEDICAL_DISCLAIMER =
@@ -280,6 +281,28 @@ function buildTemplateAdaptationResponse(): string {
   });
 }
 
+function buildEnhancedClarificationResponse(): string {
+  return JSON.stringify({
+    questions: [
+      {
+        question: 'Who is the audience for this prompt?',
+        placeholder: 'For example: beginners, founders, or engineers.',
+        defaultAnswer: 'Best professional choice.',
+      },
+      {
+        question: 'What is the main outcome you want?',
+        placeholder: 'Describe the practical goal or deliverable.',
+        defaultAnswer: 'Best professional choice.',
+      },
+      {
+        question: 'What output format should the answer follow?',
+        placeholder: 'For example: blog outline, bullets, or step-by-step guide.',
+        defaultAnswer: 'Best professional choice.',
+      },
+    ],
+  });
+}
+
 function mockExecutionFlow(finalResponse: string, executionTimeMs: number): void {
   executeMock.mockImplementation(async (payload) => {
     if (payload.prompt.includes('Generate a reusable expert prompt template')) {
@@ -293,6 +316,13 @@ function mockExecutionFlow(finalResponse: string, executionTimeMs: number): void
       return {
         response: buildTemplateAdaptationResponse(),
         executionTimeMs: 60,
+      };
+    }
+
+    if (payload.prompt.includes('Micro-Question Engine')) {
+      return {
+        response: buildEnhancedClarificationResponse(),
+        executionTimeMs: 45,
       };
     }
 
@@ -763,16 +793,10 @@ describe('PipelineExecutor integration', () => {
     expect(result.enrichedPrompt).toContain(FACT_FLAG_INSTRUCTION);
   });
 
-  it('pauses once for a missing report scope, resumes after one answer, and injects the clarification', async () => {
+  it('keeps standard mode as a one-click flow without pausing for clarification', async () => {
     mockExecutionFlow('Summary completed after the missing report was clarified. [LIKELY]', 115);
 
     const { executor, statuses, stages } = createExecutor();
-    const questions: string[] = [];
-
-    executor.on('question', (question) => {
-      questions.push(question);
-      executor.resumeWithAnswer('The Q1 operations report covering March 2026 performance.');
-    });
 
     const executionPromise = executor.execute({
       rawInput: 'summarize the report',
@@ -782,15 +806,65 @@ describe('PipelineExecutor integration', () => {
 
     const result = await executionPromise;
 
-    expect(questions).toEqual([
-      'Which report are you referring to? Please paste the content or describe it.',
-    ]);
+    expect(statuses).not.toContain('WAITING_FOR_INPUT');
+    expect(stages).not.toContain('AWAITING_MICRO_QUESTION');
+    expect(stages).toContain('COMPLETE');
+    expect(result.enrichedPrompt).not.toContain('User Clarification:');
+    expect(result.enrichedPrompt).not.toContain('Professional Context Answers:');
+  });
+
+  it('asks three targeted clarification questions in enhanced mode and injects the answers', async () => {
+    mockExecutionFlow('Professional AI blog prompt generated. [LIKELY]', 118);
+
+    const { executor, statuses, stages } = createExecutor({
+      settings: {
+        ...TEST_SETTINGS,
+        enhancedModeEnabled: true,
+      },
+    });
+    const clarificationQuestionSets: string[][] = [];
+
+    executor.on('clarificationSet', (questions) => {
+      clarificationQuestionSets.push(questions.map((question) => question.prompt));
+      executor.resumeWithClarificationSet([
+        {
+          questionId: questions[0].id,
+          answer: 'Startup founders and product marketers.',
+          usedDefault: false,
+        },
+        {
+          questionId: questions[1].id,
+          answer: 'Create a high-converting educational blog post.',
+          usedDefault: false,
+        },
+        {
+          questionId: questions[2].id,
+          answer: '',
+          usedDefault: true,
+        },
+      ]);
+    });
+
+    const result = await executor.execute({
+      rawInput: 'Write a blog post about AI.',
+      targetModel: ModelTarget.GPT4O,
+      sessionId: 'enhanced-mode-session',
+    });
+
+    expect(clarificationQuestionSets).toHaveLength(1);
+    expect(clarificationQuestionSets[0]).toHaveLength(3);
     expect(statuses).toEqual(expect.arrayContaining(['WAITING_FOR_INPUT', 'COMPLETE']));
-    expect(stages).toEqual(expect.arrayContaining(['AWAITING_MICRO_QUESTION', 'COMPLETE']));
-    expect(result.enrichedPrompt).toContain('User Clarification:');
-    expect(result.enrichedPrompt).toContain(
-      'The Q1 operations report covering March 2026 performance.',
+    expect(stages).toEqual(
+      expect.arrayContaining([
+        'LAYER2_GENERATE_ENHANCED_QUESTIONS',
+        'AWAITING_ENHANCED_CLARIFICATION',
+        'COMPLETE',
+      ]),
     );
+    expect(result.enrichedPrompt).toContain('Professional Context Answers:');
+    expect(result.enrichedPrompt).toContain('Startup founders and product marketers.');
+    expect(result.enrichedPrompt).toContain('Create a high-converting educational blog post.');
+    expect(result.enrichedPrompt).toContain('Best professional choice. (default applied)');
   });
 
   it('changes the enriched prompt when the selected persona changes', async () => {

@@ -85,7 +85,9 @@ export type PipelineStageId =
   | 'LAYER1_NEUTRALIZE_AMBIGUITY'
   | 'LAYER1_ENFORCE_OUTPUT_FORMAT'
   | 'LAYER2_DETECT_GAPS'
+  | 'LAYER2_GENERATE_ENHANCED_QUESTIONS'
   | 'AWAITING_MICRO_QUESTION'
+  | 'AWAITING_ENHANCED_CLARIFICATION'
   | 'LAYER2_INJECT_PERSONA'
   | 'LAYER2_BUILD_SESSION_MEMORY'
   | 'LAYER2_ADAPT_MODEL'
@@ -167,6 +169,25 @@ export interface KnowledgeGap {
   gap: string;
   severity: GapSeverity;
   suggestedFix: string;
+}
+
+/**
+ * Represents one targeted clarification PromptBridge can ask before building a richer prompt.
+ */
+export interface ClarificationQuestion {
+  id: string;
+  prompt: string;
+  placeholder: string;
+  defaultAnswer: string;
+}
+
+/**
+ * Stores a user's answer for a clarification question, including whether PromptBridge used a default.
+ */
+export interface ClarificationResponse {
+  questionId: string;
+  answer: string;
+  usedDefault: boolean;
 }
 
 /**
@@ -291,6 +312,7 @@ export interface AppSettings {
   vaultTimeoutMinutes: number;
   theme: ThemePreference;
   abModeEnabled: boolean;
+  enhancedModeEnabled: boolean;
 }
 
 /**

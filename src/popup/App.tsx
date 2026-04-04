@@ -144,6 +144,20 @@ export default function App(): JSX.Element {
       setPopupStatusMessage(question);
       setIsSubmitting(false);
     });
+    const unsubscribeClarificationSet = executor.on('clarificationSet', (questions) => {
+      setPopupPendingInteraction({
+        kind: 'clarificationSet',
+        questions,
+        responses: questions.map((question) => ({
+          questionId: question.id,
+          answer: '',
+          usedDefault: true,
+        })),
+        activeQuestionId: questions[0]?.id ?? '',
+      });
+      setPopupStatusMessage(POPUP_TEXT.interactions.enhancedSubtitle);
+      setIsSubmitting(false);
+    });
     const unsubscribeCommandConfirmation = executor.on('commandConfirmation', (prompt) => {
       setPopupPendingInteraction({
         kind: 'commandConfirmation',
@@ -175,6 +189,7 @@ export default function App(): JSX.Element {
       unsubscribeStatus();
       unsubscribeStage();
       unsubscribeQuestion();
+      unsubscribeClarificationSet();
       unsubscribeCommandConfirmation();
       unsubscribeScopeSelection();
       unsubscribeComplete();
@@ -182,11 +197,11 @@ export default function App(): JSX.Element {
     };
   }, [
     executor,
-    setPipelineStage,
-    setPipelineStatus,
-    setPopupPendingInteraction,
-    setPopupStatusMessage,
-  ]);
+      setPipelineStage,
+      setPipelineStatus,
+      setPopupPendingInteraction,
+      setPopupStatusMessage,
+    ]);
 
   useEffect(() => {
     executor.setSettings(settings);
@@ -502,6 +517,22 @@ export default function App(): JSX.Element {
         onSubmit={() => {
           void runPipeline();
         }}
+        onSubmitEnhancedClarification={() => {
+          const interaction = usePromptBridgeStore.getState().popupPendingInteraction;
+
+          if (!interaction || interaction.kind !== 'clarificationSet') {
+            return;
+          }
+
+          setPopupPendingInteraction(null);
+          executor.resumeWithClarificationSet(
+            interaction.responses.map((response) => ({
+              ...response,
+              answer: response.answer.trim(),
+              usedDefault: response.answer.trim().length === 0,
+            })),
+          );
+        }}
         onSubmitMicroQuestion={() => {
           const interaction = usePromptBridgeStore.getState().popupPendingInteraction;
 
@@ -515,6 +546,11 @@ export default function App(): JSX.Element {
         onToggleAbMode={(enabled) => {
           void updateSettings({
             abModeEnabled: enabled,
+          });
+        }}
+        onToggleEnhancedMode={(enabled) => {
+          void updateSettings({
+            enhancedModeEnabled: enabled,
           });
         }}
       />

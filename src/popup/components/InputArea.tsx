@@ -8,6 +8,7 @@ export interface InputAreaProps {
   onRemoveImage: () => void;
   onSubmit: () => void;
   onToggleAbMode: (enabled: boolean) => void;
+  onToggleEnhancedMode: (enabled: boolean) => void;
 }
 
 const TEXTAREA_MAX_HEIGHT = 400;
@@ -32,6 +33,7 @@ export default function InputArea({
   onRemoveImage,
   onSubmit,
   onToggleAbMode,
+  onToggleEnhancedMode,
 }: InputAreaProps): JSX.Element {
   const { popupDraftInput, popupImageAttachment, setPopupDraftInput, settings } =
     usePromptBridgeStore();
@@ -105,6 +107,17 @@ export default function InputArea({
             type="checkbox"
           />
           {POPUP_TEXT.inputArea.abModeLabel}
+        </label>
+
+        <label className="inline-flex items-center gap-2 rounded-full border border-[var(--pb-border)] bg-[var(--pb-surface-muted)] px-4 py-2 text-sm font-semibold text-[var(--pb-text)]">
+          <input
+            checked={settings.enhancedModeEnabled}
+            onChange={(event) => {
+              onToggleEnhancedMode(event.target.checked);
+            }}
+            type="checkbox"
+          />
+          {POPUP_TEXT.inputArea.enhancedModeLabel}
         </label>
 
         <button
