@@ -1,0 +1,47 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="pb-bg" x1="16" y1="12" x2="112" y2="118" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1D4ED8" />
+      <stop offset="1" stop-color="#0F766E" />
+    </linearGradient>
+    <linearGradient id="pb-accent" x1="28" y1="78" x2="100" y2="78" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FAFC" />
+      <stop offset="1" stop-color="#DBEAFE" />
+    </linearGradient>
+    <linearGradient id="pb-signal" x1="34" y1="92" x2="94" y2="44" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F59E0B" />
+      <stop offset="1" stop-color="#F97316" />
+    </linearGradient>
+  </defs>
+
+  <rect x="8" y="8" width="112" height="112" rx="28" fill="url(#pb-bg)" />
+  <rect x="16" y="16" width="96" height="96" rx="22" stroke="rgba(255,255,255,0.18)" stroke-width="2" />
+
+  <path
+    d="M28 82C38 57.5 49.8333 45.25 63.5 45.25C77.1667 45.25 89.3333 57.5 100 82"
+    stroke="url(#pb-accent)"
+    stroke-width="11"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <path
+    d="M34 92C43.5 76 53.5 68 64 68C74.5 68 84.5 76 94 92"
+    stroke="url(#pb-signal)"
+    stroke-width="8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <path d="M44 82V98" stroke="#F8FAFC" stroke-width="8" stroke-linecap="round" />
+  <path d="M64 72V98" stroke="#F8FAFC" stroke-width="8" stroke-linecap="round" />
+  <path d="M84 82V98" stroke="#F8FAFC" stroke-width="8" stroke-linecap="round" />
+
+  <circle cx="64" cy="34" r="9" fill="#F8FAFC" />
+  <circle cx="64" cy="34" r="4" fill="#1D4ED8" />
+
+  <path
+    d="M96 30L98.4 35.6L104 38L98.4 40.4L96 46L93.6 40.4L88 38L93.6 35.6L96 30Z"
+    fill="#FBBF24"
+  />
+</svg>
