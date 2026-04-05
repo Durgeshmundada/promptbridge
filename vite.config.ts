@@ -210,20 +210,31 @@ function finalizeDistribution(): Plugin {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const bundledGroqApiKey =
-    env.PROMPTBRIDGE_GROQ_API_KEY ||
-    env.GROQ_API_KEY ||
-    env.VITE_PROMPTBRIDGE_GROQ_API_KEY ||
-    '';
   const templateServiceBaseUrl =
     env.PROMPTBRIDGE_TEMPLATE_SERVICE_BASE_URL ||
     env.VITE_PROMPTBRIDGE_TEMPLATE_SERVICE_BASE_URL ||
     'http://127.0.0.1:8787';
+  const geminiKeyDefines = Object.fromEntries(
+    Array.from({ length: 7 }, (_, index) => {
+      const slot = index + 1;
+      const envValue =
+        env[`PROMPTBRIDGE_GEMINI_API_KEY_${slot}`] ||
+        env[`VITE_PROMPTBRIDGE_GEMINI_API_KEY_${slot}`] ||
+        '';
+
+      return [
+        [`__PROMPTBRIDGE_GEMINI_API_KEY_${slot}__`, JSON.stringify(envValue)],
+        [
+          `globalThis.__PROMPTBRIDGE_GEMINI_API_KEY_${slot}__`,
+          JSON.stringify(envValue),
+        ],
+      ];
+    }).flat(),
+  );
 
   return {
     define: {
-      __PROMPTBRIDGE_GROQ_API_KEY__: JSON.stringify(bundledGroqApiKey),
-      'globalThis.__PROMPTBRIDGE_GROQ_API_KEY__': JSON.stringify(bundledGroqApiKey),
+      ...geminiKeyDefines,
       __PROMPTBRIDGE_TEMPLATE_SERVICE_BASE_URL__: JSON.stringify(templateServiceBaseUrl),
       'globalThis.__PROMPTBRIDGE_TEMPLATE_SERVICE_BASE_URL__': JSON.stringify(
         templateServiceBaseUrl,

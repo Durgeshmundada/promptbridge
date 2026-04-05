@@ -19,6 +19,12 @@ import {
   type ClaudeVisionRuntimeSuccessResponse,
 } from '../pipeline/layer4/claudeVisionBridge';
 import { retrieveSecret } from '../pipeline/layer3/sensitiveDataVault';
+import {
+  executeGeminiPayload,
+  GeminiRotationError,
+  listGeminiModels,
+  proxyGeminiChatCompletion,
+} from './geminiRotatingClient';
 import type {
   GroqChatCompletionRequest,
   GroqChatCompletionSuccessResponse,
@@ -102,33 +108,6 @@ interface ExecuteLlmErrorResponse extends ErrorResponse {
   code: number;
 }
 
-interface GroqModelDescriptor {
-  id?: string;
-}
-
-interface GroqListModelsApiResponse {
-  data?: GroqModelDescriptor[];
-  error?: {
-    message?: string;
-  };
-}
-
-interface GroqChatCompletionChoice {
-  finish_reason?: string | null;
-  message?: {
-    content?: string | null;
-  };
-}
-
-interface GroqChatCompletionApiResponse {
-  id?: string;
-  model?: string;
-  choices?: GroqChatCompletionChoice[];
-  error?: {
-    message?: string;
-  };
-}
-
 interface OpenAiTextContentPart {
   type: 'text';
   text: string;
@@ -166,46 +145,6 @@ interface OpenAiChatCompletionResponseBody {
   }>;
   error?: {
     message?: string;
-  };
-}
-
-interface GeminiInlineDataPart {
-  inline_data: {
-    mime_type: string;
-    data: string;
-  };
-}
-
-interface GeminiTextPart {
-  text: string;
-}
-
-interface GeminiGenerateContentRequestBody {
-  system_instruction?: {
-    parts: GeminiTextPart[];
-  };
-  contents: Array<{
-    role: 'user';
-    parts: Array<GeminiInlineDataPart | GeminiTextPart>;
-  }>;
-  generationConfig: {
-    maxOutputTokens: number;
-    temperature?: number;
-  };
-}
-
-interface GeminiGenerateContentResponseBody {
-  candidates?: Array<{
-    content?: {
-      parts?: Array<{
-        text?: string;
-      }>;
-    };
-  }>;
-  error?: {
-    code?: number;
-    message?: string;
-    status?: string;
   };
 }
 
@@ -277,12 +216,6 @@ const OPENAI_CHAT_COMPLETIONS_ENDPOINT = 'https://api.openai.com/v1/chat/complet
 const OPENAI_EXECUTION_MODEL = 'gpt-4o';
 const OPENAI_VAULT_SECRET_KEY = 'openaiApiKey';
 const CLAUDE_EXECUTION_MODEL = 'claude-3-5-sonnet-20241022';
-const GEMINI_GENERATE_CONTENT_ENDPOINT =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
-const GEMINI_VAULT_SECRET_KEY = 'geminiApiKey';
-const GROQ_API_BASE_URL = 'https://api.groq.com/openai/v1';
-const GROQ_EXECUTION_MODEL = 'llama-3.3-70b-versatile';
-const GROQ_VAULT_SECRET_KEY = 'groqApiKey';
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000] as const;
 const RETRYABLE_STATUS_CODES = new Set([429, 503]);
@@ -315,7 +248,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 function getErrorCode(error: unknown): number | undefined {
-  if (error instanceof ServiceWorkerApiError) {
+  if (error instanceof ServiceWorkerApiError || error instanceof GeminiRotationError) {
     return error.code;
   }
 
@@ -688,21 +621,6 @@ async function getAnthropicApiKey(): Promise<string> {
   return getVaultApiKey(CLAUDE_VAULT_SECRET_KEY, 'Anthropic');
 }
 
-async function getGroqApiKey(): Promise<string> {
-  const bundledGroqApiKey =
-    (
-      globalThis as typeof globalThis & {
-        __PROMPTBRIDGE_GROQ_API_KEY__?: string;
-      }
-    ).__PROMPTBRIDGE_GROQ_API_KEY__?.trim() ?? '';
-
-  if (bundledGroqApiKey) {
-    return bundledGroqApiKey;
-  }
-
-  return getVaultApiKey(GROQ_VAULT_SECRET_KEY, 'Groq');
-}
-
 function buildClaudeApiRequestBody(
   message: ClaudeVisionRuntimeRequest,
 ): ClaudeApiRequestBody {
@@ -770,28 +688,6 @@ function buildOpenAiChatRequestBody(payload: ApiPayload): OpenAiChatCompletionRe
   };
 }
 
-function buildGroqChatRequestBody(payload: ApiPayload): OpenAiChatCompletionRequestBody {
-  return {
-    model: GROQ_EXECUTION_MODEL,
-    messages: [
-      ...(payload.systemPrompt
-        ? [
-            {
-              role: 'system' as const,
-              content: payload.systemPrompt,
-            },
-          ]
-        : []),
-      {
-        role: 'user',
-        content: payload.prompt,
-      },
-    ],
-    max_completion_tokens: payload.maxTokens,
-    ...(typeof payload.temperature === 'number' ? { temperature: payload.temperature } : {}),
-  };
-}
-
 function buildClaudeExecutionRequestBody(payload: ApiPayload): ClaudeApiRequestBody {
   return {
     model: CLAUDE_EXECUTION_MODEL,
@@ -827,42 +723,6 @@ function buildClaudeExecutionRequestBody(payload: ApiPayload): ClaudeApiRequestB
   };
 }
 
-function buildGeminiRequestBody(payload: ApiPayload): GeminiGenerateContentRequestBody {
-  return {
-    ...(payload.systemPrompt
-      ? {
-          system_instruction: {
-            parts: [{ text: payload.systemPrompt }],
-          },
-        }
-      : {}),
-    contents: [
-      {
-        role: 'user',
-        parts: [
-          ...(payload.imageData
-            ? [
-                {
-                  inline_data: {
-                    mime_type: normalizeInlineImage(payload.imageData).mimeType,
-                    data: normalizeInlineImage(payload.imageData).base64Data,
-                  },
-                },
-              ]
-            : []),
-          {
-            text: payload.prompt,
-          },
-        ],
-      },
-    ],
-    generationConfig: {
-      maxOutputTokens: payload.maxTokens,
-      ...(typeof payload.temperature === 'number' ? { temperature: payload.temperature } : {}),
-    },
-  };
-}
-
 function extractOpenAiText(responseBody: OpenAiChatCompletionResponseBody): string {
   const messageContent = responseBody.choices?.[0]?.message?.content;
 
@@ -882,19 +742,6 @@ function extractOpenAiText(responseBody: OpenAiChatCompletionResponseBody): stri
   }
 
   throw new ServiceWorkerApiError(502, 'OpenAI returned no assistant text content.');
-}
-
-function extractGeminiText(responseBody: GeminiGenerateContentResponseBody): string {
-  const textContent = (responseBody.candidates?.[0]?.content?.parts ?? [])
-    .map((part) => (typeof part.text === 'string' ? part.text.trim() : ''))
-    .filter(Boolean)
-    .join('\n');
-
-  if (!textContent) {
-    throw new ServiceWorkerApiError(502, 'Gemini returned no assistant text content.');
-  }
-
-  return textContent;
 }
 
 function extractClaudeTextContent(responseBody: ClaudeApiResponseBody): string {
@@ -957,23 +804,15 @@ export async function executeApiPayload(
   try {
     switch (payload.model) {
       case ModelTarget.GROQ: {
-        const apiKey = await getGroqApiKey();
-        const responseBody = await performJsonRequestWithBackoff<OpenAiChatCompletionResponseBody>(
-          'Groq',
-          `${GROQ_API_BASE_URL}/chat/completions`,
-          {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify(buildGroqChatRequestBody(payload)),
-          },
-        );
+        const response = await executeGeminiPayload(payload, {
+          includeImageData: false,
+          operationLabel: 'Groq-compatible Gemini execution',
+        });
         const executionTimeMs = Date.now() - startTime;
-        const text = extractOpenAiText(responseBody);
-        console.info(`[PromptBridge][LLM] Groq completed in ${executionTimeMs}ms.`);
-        return { text, executionTimeMs };
+        console.info(
+          `[PromptBridge][LLM] Groq-compatible Gemini completed in ${executionTimeMs}ms using key slot ${response.keySlot}.`,
+        );
+        return { text: response.text, executionTimeMs };
       }
       case ModelTarget.GPT4O: {
         const apiKey = await getVaultApiKey(OPENAI_VAULT_SECRET_KEY, 'OpenAI');
@@ -1015,23 +854,15 @@ export async function executeApiPayload(
         return { text, executionTimeMs };
       }
       case ModelTarget.GEMINI: {
-        const apiKey = await getVaultApiKey(GEMINI_VAULT_SECRET_KEY, 'Gemini');
-        const responseBody = await performJsonRequestWithBackoff<GeminiGenerateContentResponseBody>(
-          'Gemini',
-          GEMINI_GENERATE_CONTENT_ENDPOINT,
-          {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              'x-goog-api-key': apiKey,
-            },
-            body: JSON.stringify(buildGeminiRequestBody(payload)),
-          },
-        );
+        const response = await executeGeminiPayload(payload, {
+          includeImageData: true,
+          operationLabel: 'Gemini execution',
+        });
         const executionTimeMs = Date.now() - startTime;
-        const text = extractGeminiText(responseBody);
-        console.info(`[PromptBridge][LLM] Gemini completed in ${executionTimeMs}ms.`);
-        return { text, executionTimeMs };
+        console.info(
+          `[PromptBridge][LLM] Gemini completed in ${executionTimeMs}ms using key slot ${response.keySlot}.`,
+        );
+        return { text: response.text, executionTimeMs };
       }
       case ModelTarget.LLAMA:
       case ModelTarget.CUSTOM:
@@ -1045,7 +876,7 @@ export async function executeApiPayload(
       }
     }
   } catch (error) {
-    if (error instanceof ServiceWorkerApiError) {
+    if (error instanceof ServiceWorkerApiError || error instanceof GeminiRotationError) {
       throw error;
     }
 
@@ -1059,33 +890,6 @@ export async function executeApiPayload(
       error,
     );
   }
-}
-
-async function listGroqModels(): Promise<GroqListModelsSuccessResponse> {
-  const apiKey = await getGroqApiKey();
-  const response = await fetch(`${GROQ_API_BASE_URL}/models`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
-  });
-  const responseBody = (await response.json()) as GroqListModelsApiResponse;
-
-  if (!response.ok) {
-    throw new Error(
-      responseBody.error?.message ?? `Groq models request failed with status ${response.status}.`,
-    );
-  }
-
-  const models = (responseBody.data ?? [])
-    .map((entry) => entry.id?.trim() ?? '')
-    .filter(Boolean)
-    .sort((left, right) => left.localeCompare(right));
-
-  return {
-    ok: true,
-    models,
-  };
 }
 
 async function loadTemplatesFromTemplateService(
@@ -1231,52 +1035,6 @@ async function saveTemplateToTemplateService(
   };
 }
 
-async function proxyGroqChatCompletion(
-  message: GroqChatCompletionRequest,
-): Promise<GroqChatCompletionSuccessResponse> {
-  const apiKey = await getGroqApiKey();
-  const response = await fetch(`${GROQ_API_BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: message.payload.model,
-      messages: message.payload.messages,
-      ...(typeof message.payload.temperature === 'number'
-        ? { temperature: message.payload.temperature }
-        : {}),
-      ...(typeof message.payload.maxTokens === 'number'
-        ? { max_tokens: message.payload.maxTokens }
-        : {}),
-    }),
-  });
-  const responseBody = (await response.json()) as GroqChatCompletionApiResponse;
-
-  if (!response.ok) {
-    throw new Error(
-      responseBody.error?.message ??
-        `Groq chat completion request failed with status ${response.status}.`,
-    );
-  }
-
-  const firstChoice = responseBody.choices?.[0];
-  const content = firstChoice?.message?.content?.trim();
-
-  if (!content) {
-    throw new Error('Groq returned no assistant message content.');
-  }
-
-  return {
-    ok: true,
-    id: responseBody.id ?? globalThis.crypto.randomUUID(),
-    model: responseBody.model ?? message.payload.model,
-    content,
-    finishReason: firstChoice?.finish_reason ?? null,
-  };
-}
-
 async function bootstrapExtension(): Promise<void> {
   await ensureStorageDefaults();
 }
@@ -1374,9 +1132,9 @@ export async function handleRuntimeRequest(
     case 'SAVE_TEMPLATE':
       return saveTemplateToTemplateService(message.payload);
     case 'GROQ_LIST_MODELS':
-      return listGroqModels();
+      return listGeminiModels();
     case 'GROQ_CHAT_COMPLETION':
-      return proxyGroqChatCompletion(message);
+      return proxyGeminiChatCompletion(message.payload);
     case 'CLAUDE_VISION_REQUEST':
       return proxyClaudeVisionRequest(message);
     default: {

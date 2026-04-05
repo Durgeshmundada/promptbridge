@@ -2,7 +2,13 @@ import type * as ServiceWorkerModule from '../serviceWorker';
 import { ModelTarget } from '../../types';
 
 const PROMPTBRIDGE_GLOBAL = globalThis as typeof globalThis & {
-  __PROMPTBRIDGE_GROQ_API_KEY__?: string;
+  __PROMPTBRIDGE_GEMINI_API_KEY_1__?: string;
+  __PROMPTBRIDGE_GEMINI_API_KEY_2__?: string;
+  __PROMPTBRIDGE_GEMINI_API_KEY_3__?: string;
+  __PROMPTBRIDGE_GEMINI_API_KEY_4__?: string;
+  __PROMPTBRIDGE_GEMINI_API_KEY_5__?: string;
+  __PROMPTBRIDGE_GEMINI_API_KEY_6__?: string;
+  __PROMPTBRIDGE_GEMINI_API_KEY_7__?: string;
 };
 
 interface MockEvent {
@@ -50,6 +56,16 @@ function createJsonResponse<T>(status: number, body: T): Response {
   } as unknown as Response;
 }
 
+function clearBundledGeminiKeys(): void {
+  PROMPTBRIDGE_GLOBAL.__PROMPTBRIDGE_GEMINI_API_KEY_1__ = undefined;
+  PROMPTBRIDGE_GLOBAL.__PROMPTBRIDGE_GEMINI_API_KEY_2__ = undefined;
+  PROMPTBRIDGE_GLOBAL.__PROMPTBRIDGE_GEMINI_API_KEY_3__ = undefined;
+  PROMPTBRIDGE_GLOBAL.__PROMPTBRIDGE_GEMINI_API_KEY_4__ = undefined;
+  PROMPTBRIDGE_GLOBAL.__PROMPTBRIDGE_GEMINI_API_KEY_5__ = undefined;
+  PROMPTBRIDGE_GLOBAL.__PROMPTBRIDGE_GEMINI_API_KEY_6__ = undefined;
+  PROMPTBRIDGE_GLOBAL.__PROMPTBRIDGE_GEMINI_API_KEY_7__ = undefined;
+}
+
 describe('service worker EXECUTE_LLM routing', () => {
   let retrieveSecretMock: jest.Mock;
   let ensureStorageDefaultsMock: jest.Mock;
@@ -60,7 +76,8 @@ describe('service worker EXECUTE_LLM routing', () => {
     jest.resetModules();
     jest.restoreAllMocks();
     jest.spyOn(console, 'info').mockImplementation(() => undefined);
-    PROMPTBRIDGE_GLOBAL.__PROMPTBRIDGE_GROQ_API_KEY__ = undefined;
+    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    clearBundledGeminiKeys();
     installChromeMock();
 
     retrieveSecretMock = jest.fn(async (secretKey: string) => {
@@ -102,7 +119,7 @@ describe('service worker EXECUTE_LLM routing', () => {
   afterEach(() => {
     jest.useRealTimers();
     jest.restoreAllMocks();
-    PROMPTBRIDGE_GLOBAL.__PROMPTBRIDGE_GROQ_API_KEY__ = undefined;
+    clearBundledGeminiKeys();
   });
 
   it('calls OpenAI chat completions and retries once after a 429 response', async () => {
@@ -152,13 +169,18 @@ describe('service worker EXECUTE_LLM routing', () => {
     expect(result.executionTimeMs).toBeGreaterThanOrEqual(0);
   });
 
-  it('calls the Groq chat completions endpoint and normalizes the assistant text', async () => {
+  it('routes the Groq execution path through Gemini and normalizes the assistant text', async () => {
     fetchMock.mockResolvedValueOnce(
       createJsonResponse(200, {
-        choices: [
+        modelVersion: 'gemini-2.0-flash',
+        candidates: [
           {
-            message: {
-              content: 'Groq response text.',
+            content: {
+              parts: [
+                {
+                  text: 'Groq response text.',
+                },
+              ],
             },
           },
         ],
@@ -173,26 +195,47 @@ describe('service worker EXECUTE_LLM routing', () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe('https://api.groq.com/openai/v1/chat/completions');
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
+    );
     expect(fetchMock.mock.calls[0][1].headers).toMatchObject({
-      Authorization: 'Bearer groq-test-key',
+      'x-goog-api-key': 'gemini-test-key',
     });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
-      model: 'llama-3.3-70b-versatile',
-      max_completion_tokens: 300,
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: 'Tighten this prompt for debugging.' }],
+        },
+      ],
+      generationConfig: {
+        maxOutputTokens: 300,
+      },
     });
     expect(result.text).toBe('Groq response text.');
   });
 
-  it('uses the bundled Groq key when the vault is empty', async () => {
-    PROMPTBRIDGE_GLOBAL.__PROMPTBRIDGE_GROQ_API_KEY__ = 'bundled-groq-key';
-    retrieveSecretMock.mockResolvedValueOnce(null);
+  it('rotates to the next bundled Gemini key when the current key is rate limited', async () => {
+    PROMPTBRIDGE_GLOBAL.__PROMPTBRIDGE_GEMINI_API_KEY_1__ = 'gemini-key-1';
+    PROMPTBRIDGE_GLOBAL.__PROMPTBRIDGE_GEMINI_API_KEY_2__ = 'gemini-key-2';
+    fetchMock.mockResolvedValueOnce(
+      createJsonResponse(429, {
+        error: {
+          message: 'Quota exceeded for this API key.',
+          status: 'RESOURCE_EXHAUSTED',
+        },
+      }),
+    );
     fetchMock.mockResolvedValueOnce(
       createJsonResponse(200, {
-        choices: [
+        candidates: [
           {
-            message: {
-              content: 'Bundled Groq response text.',
+            content: {
+              parts: [
+                {
+                  text: 'Rotated Gemini response text.',
+                },
+              ],
             },
           },
         ],
@@ -206,10 +249,14 @@ describe('service worker EXECUTE_LLM routing', () => {
       maxTokens: 128,
     });
 
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[0][1].headers).toMatchObject({
-      Authorization: 'Bearer bundled-groq-key',
+      'x-goog-api-key': 'gemini-key-1',
     });
-    expect(result.text).toBe('Bundled Groq response text.');
+    expect(fetchMock.mock.calls[1][1].headers).toMatchObject({
+      'x-goog-api-key': 'gemini-key-2',
+    });
+    expect(result.text).toBe('Rotated Gemini response text.');
   });
 
   it('calls the Anthropic Messages API and normalizes the text response', async () => {
@@ -249,6 +296,7 @@ describe('service worker EXECUTE_LLM routing', () => {
   it('calls the Gemini generateContent API and normalizes the candidate text', async () => {
     fetchMock.mockResolvedValueOnce(
       createJsonResponse(200, {
+        modelVersion: 'gemini-2.0-flash',
         candidates: [
           {
             content: {
@@ -272,7 +320,7 @@ describe('service worker EXECUTE_LLM routing', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
     );
     expect(fetchMock.mock.calls[0][1].headers).toMatchObject({
       'x-goog-api-key': 'gemini-test-key',
