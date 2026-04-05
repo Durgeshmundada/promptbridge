@@ -110,6 +110,10 @@ async function addDirectoryToZip(
     }
 
     if (directoryEntry.isFile()) {
+      if (directoryEntry.name.toLowerCase().endsWith('.zip')) {
+        continue;
+      }
+
       const fileStats = await stat(sourcePath);
       zipFile.addFile(sourcePath, zipPath, {
         mtime: fileStats.mtime,

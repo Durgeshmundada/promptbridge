@@ -1,13 +1,20 @@
-import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv } from 'vite';
 import type { Plugin } from 'vite';
+import type * as Yazl from 'yazl';
 import webExtension from 'vite-plugin-web-extension';
 import manifest from './manifest.json';
 
+const require = createRequire(import.meta.url);
+const yazl = require('yazl') as typeof Yazl;
+
 const ICON_FILE_NAMES = ['icon16.png', 'icon48.png', 'icon128.png'] as const;
 const STABLE_CONTENT_RUNTIME_PATH = ['assets', 'src', 'content', 'contentScript.runtime.js'] as const;
+const LANDING_DOWNLOAD_FILE_NAME = 'promptbridge-extension.zip';
 const DIST_ENTRY_MAPPINGS = [
   {
     source: ['serviceWorker.js'],
@@ -147,6 +154,71 @@ function rewriteManifestForDistribution(
   return distributedManifest;
 }
 
+async function addDirectoryToZip(
+  zipFile: InstanceType<typeof yazl.ZipFile>,
+  sourceDirectory: string,
+  zipDirectory: string,
+  rootDirectory: string,
+  skipRelativePaths: Set<string>,
+): Promise<void> {
+  const directoryEntries = await readdir(sourceDirectory, { withFileTypes: true });
+
+  for (const directoryEntry of directoryEntries) {
+    const sourcePath = path.join(sourceDirectory, directoryEntry.name);
+    const relativePath = path.relative(rootDirectory, sourcePath).split(path.sep).join('/');
+
+    if (skipRelativePaths.has(relativePath)) {
+      continue;
+    }
+
+    const zipPath = path.posix.join(zipDirectory, directoryEntry.name);
+
+    if (directoryEntry.isDirectory()) {
+      await addDirectoryToZip(zipFile, sourcePath, zipPath, rootDirectory, skipRelativePaths);
+      continue;
+    }
+
+    if (directoryEntry.isFile()) {
+      const fileStats = await stat(sourcePath);
+      zipFile.addFile(sourcePath, zipPath, {
+        mtime: fileStats.mtime,
+        mode: fileStats.mode,
+      });
+    }
+  }
+}
+
+async function createLandingDownloadArchive(distDirectory: string): Promise<void> {
+  const temporaryArchivePath = path.resolve(process.cwd(), '.tmp', LANDING_DOWNLOAD_FILE_NAME);
+
+  await mkdir(path.dirname(temporaryArchivePath), { recursive: true });
+  await rm(temporaryArchivePath, { force: true });
+
+  const zipFile = new yazl.ZipFile();
+  const outputStream = createWriteStream(temporaryArchivePath);
+
+  await new Promise<void>((resolve, reject) => {
+    zipFile.outputStream.pipe(outputStream);
+    outputStream.on('close', resolve);
+    outputStream.on('error', reject);
+    zipFile.outputStream.on('error', reject);
+
+    void addDirectoryToZip(
+      zipFile,
+      distDirectory,
+      'promptbridge',
+      distDirectory,
+      new Set([LANDING_DOWNLOAD_FILE_NAME]),
+    )
+      .then(() => {
+        zipFile.end();
+      })
+      .catch(reject);
+  });
+
+  await copyFile(temporaryArchivePath, path.resolve(distDirectory, LANDING_DOWNLOAD_FILE_NAME));
+}
+
 function finalizeDistribution(): Plugin {
   return {
     name: 'finalize-distribution',
@@ -214,6 +286,7 @@ function finalizeDistribution(): Plugin {
       const distributedManifest = rewriteManifestForDistribution(manifestContents);
 
       await writeFile(manifestPath, `${JSON.stringify(distributedManifest, null, 2)}\n`, 'utf8');
+      await createLandingDownloadArchive(distDirectory);
     },
   };
 }

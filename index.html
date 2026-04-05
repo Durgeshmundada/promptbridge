@@ -76,6 +76,15 @@
         text-decoration: none;
       }
 
+      code {
+        padding: 0.14rem 0.4rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        font-family: "Cascadia Code", "Consolas", monospace;
+        font-size: 0.9em;
+      }
+
       .page-shell {
         position: relative;
         z-index: 1;
@@ -238,6 +247,7 @@
       }
 
       .hero-copy p,
+      .cta-help,
       .section-head p,
       .step-card p,
       .feature-card p,
@@ -251,6 +261,16 @@
         margin: 0 0 1.5rem;
         max-width: 62ch;
         font-size: 1.08rem;
+      }
+
+      .cta-help {
+        margin: -0.2rem 0 1.45rem;
+        max-width: 62ch;
+        font-size: 0.94rem;
+      }
+
+      .cta-help strong {
+        color: var(--text);
       }
 
       .hero-actions,
@@ -689,14 +709,20 @@
               <div class="hero-actions">
                 <a
                   class="btn btn-primary"
-                  href="https://github.com/Durgeshmundada/promptbridge"
-                  target="_blank"
-                  rel="noreferrer"
+                  href="/promptbridge-extension.zip"
+                  download="promptbridge-extension.zip"
                 >
-                  Add to Chrome - It's Free
+                  Add to Chrome - Free Download
                 </a>
                 <a class="btn btn-secondary" href="#how-it-works">See How It Works</a>
               </div>
+
+              <p class="cta-help">
+                <strong>This downloads the extension package directly.</strong>
+                Chrome only supports true one-click installation through the Chrome Web Store, so
+                after downloading you will need to extract the ZIP and load it from
+                <code>chrome://extensions</code>.
+              </p>
 
               <div class="hero-highlights">
                 <span class="chip"><span class="dot"></span>7-layer enrichment pipeline</span>
@@ -945,11 +971,10 @@
                 </div>
                 <a
                   class="btn btn-primary"
-                  href="https://github.com/Durgeshmundada/promptbridge"
-                  target="_blank"
-                  rel="noreferrer"
+                  href="/promptbridge-extension.zip"
+                  download="promptbridge-extension.zip"
                 >
-                  Add to Chrome - It's Free
+                  Add to Chrome - Free Download
                 </a>
               </div>
             </div>
