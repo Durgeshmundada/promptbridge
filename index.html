@@ -1,0 +1,999 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PromptBridge | Invisible Prompt Engineer for Chrome</title>
+    <meta
+      name="description"
+      content="PromptBridge is a Chrome extension that upgrades prompts before they reach ChatGPT, Claude, Gemini, or Perplexity."
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #070812;
+        --surface: rgba(18, 24, 44, 0.72);
+        --border: rgba(255, 255, 255, 0.11);
+        --text: #f7f8ff;
+        --muted: #a8afcc;
+        --purple: #9f5cff;
+        --blue: #51a5ff;
+        --cyan: #55e6ff;
+        --success: #7bffb2;
+        --shadow: 0 24px 80px rgba(8, 10, 24, 0.5);
+        --radius-xl: 28px;
+        --radius-lg: 22px;
+        --max-width: 1180px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+        background:
+          radial-gradient(circle at 15% 20%, rgba(159, 92, 255, 0.18), transparent 28%),
+          radial-gradient(circle at 85% 18%, rgba(81, 165, 255, 0.18), transparent 28%),
+          radial-gradient(circle at 50% 85%, rgba(85, 230, 255, 0.12), transparent 24%),
+          linear-gradient(180deg, #060711 0%, #090b16 45%, #05060f 100%);
+        color: var(--text);
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
+
+      body::before,
+      body::after {
+        content: "";
+        position: fixed;
+        width: 32rem;
+        height: 32rem;
+        border-radius: 999px;
+        filter: blur(80px);
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      body::before {
+        top: -8rem;
+        left: -10rem;
+        background: rgba(159, 92, 255, 0.12);
+      }
+
+      body::after {
+        right: -8rem;
+        top: 18rem;
+        background: rgba(81, 165, 255, 0.11);
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .page-shell {
+        position: relative;
+        z-index: 1;
+      }
+
+      .container {
+        width: min(calc(100% - 2rem), var(--max-width));
+        margin: 0 auto;
+      }
+
+      .glass {
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+      }
+
+      .site-nav {
+        position: sticky;
+        top: 1rem;
+        z-index: 12;
+        padding-top: 1rem;
+      }
+
+      .nav-inner,
+      .footer-inner,
+      .cta-content,
+      .section-head,
+      .mock-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+
+      .nav-inner {
+        padding: 1rem 1.25rem;
+        border-radius: 999px;
+      }
+
+      .brand,
+      .chip,
+      .eyebrow,
+      .btn,
+      .nav-cta {
+        display: inline-flex;
+        align-items: center;
+      }
+
+      .brand {
+        gap: 0.9rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+
+      .brand-mark,
+      .feature-icon,
+      .step-number,
+      .logo-mark {
+        display: grid;
+        place-items: center;
+      }
+
+      .brand-mark {
+        width: 2.5rem;
+        height: 2.5rem;
+        border-radius: 16px;
+        background: linear-gradient(135deg, rgba(159, 92, 255, 0.95), rgba(81, 165, 255, 0.95));
+        box-shadow: 0 10px 30px rgba(81, 165, 255, 0.25);
+      }
+
+      .brand-mark svg,
+      .feature-icon svg {
+        width: 1.3rem;
+        height: 1.3rem;
+      }
+
+      .nav-links {
+        display: flex;
+        gap: 1.2rem;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      .nav-links a:hover,
+      .footer-link:hover {
+        color: #fff;
+      }
+
+      .nav-cta,
+      .btn {
+        justify-content: center;
+        border-radius: 999px;
+        font-weight: 700;
+        transition: transform 0.25s ease, box-shadow 0.25s ease, background 0.25s ease;
+      }
+
+      .nav-cta {
+        padding: 0.9rem 1.2rem;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      .hero {
+        padding: 5.5rem 0 4rem;
+      }
+
+      .hero-grid,
+      .steps-grid,
+      .features-grid,
+      .platform-row,
+      .stack-grid {
+        display: grid;
+        gap: 1rem;
+      }
+
+      .hero-grid {
+        grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+        gap: 2rem;
+        align-items: center;
+      }
+
+      .eyebrow {
+        gap: 0.6rem;
+        padding: 0.55rem 0.9rem;
+        border-radius: 999px;
+        color: #d6dcff;
+        font-size: 0.88rem;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .eyebrow::before,
+      .prompt-label::before,
+      .panel-label::before,
+      .chip .dot {
+        content: "";
+        width: 0.55rem;
+        height: 0.55rem;
+        border-radius: 999px;
+        background: linear-gradient(135deg, var(--cyan), var(--purple));
+      }
+
+      h1 {
+        margin: 1.2rem 0 1rem;
+        font-size: clamp(2.8rem, 5vw, 5.6rem);
+        line-height: 0.94;
+        letter-spacing: -0.05em;
+        max-width: 10.5ch;
+      }
+
+      .gradient-text {
+        background: linear-gradient(90deg, #fff 0%, #d1d7ff 32%, #a99cff 65%, #61ccff 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+
+      .hero-copy p,
+      .section-head p,
+      .step-card p,
+      .feature-card p,
+      .cta-content p,
+      .result-box p {
+        color: var(--muted);
+        line-height: 1.75;
+      }
+
+      .hero-copy p {
+        margin: 0 0 1.5rem;
+        max-width: 62ch;
+        font-size: 1.08rem;
+      }
+
+      .hero-actions,
+      .hero-highlights,
+      .browser-dots {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+      }
+
+      .btn {
+        position: relative;
+        gap: 0.7rem;
+        padding: 1rem 1.35rem;
+        font-size: 1rem;
+      }
+
+      .btn-primary {
+        color: #090b16;
+        background: linear-gradient(135deg, #eef2ff 0%, #b8a3ff 40%, #73d0ff 100%);
+        box-shadow: 0 14px 40px rgba(124, 105, 255, 0.35), 0 0 45px rgba(85, 230, 255, 0.18);
+      }
+
+      .btn-secondary {
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .btn:hover,
+      .nav-cta:hover {
+        transform: translateY(-2px);
+      }
+
+      .chip {
+        gap: 0.55rem;
+        padding: 0.7rem 0.95rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: #dfe4ff;
+        font-size: 0.92rem;
+      }
+
+      .hero-visual {
+        position: relative;
+        min-height: 520px;
+      }
+
+      .hero-card,
+      .cta-panel {
+        position: relative;
+        overflow: hidden;
+      }
+
+      .hero-card {
+        padding: 1.3rem;
+        border-radius: var(--radius-xl);
+        min-height: 100%;
+      }
+
+      .hero-card::before,
+      .cta-panel::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+
+      .hero-card::before {
+        background:
+          radial-gradient(circle at 10% 10%, rgba(159, 92, 255, 0.16), transparent 28%),
+          radial-gradient(circle at 90% 22%, rgba(81, 165, 255, 0.16), transparent 26%);
+      }
+
+      .pipeline-badge,
+      .mock-panel,
+      .clarify-panel,
+      .mock-toolbar {
+        position: relative;
+        z-index: 1;
+      }
+
+      .browser-dots span {
+        width: 0.65rem;
+        height: 0.65rem;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.18);
+      }
+
+      .browser-label {
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+
+      .mock-panel {
+        display: grid;
+        gap: 1rem;
+      }
+
+      .prompt-box,
+      .result-box,
+      .clarify-panel,
+      .step-card,
+      .feature-card,
+      .stack-panel,
+      .platform-row,
+      .cta-panel {
+        border-radius: var(--radius-lg);
+      }
+
+      .prompt-box,
+      .result-box,
+      .clarify-panel {
+        padding: 1rem;
+        background: var(--surface);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .prompt-label,
+      .panel-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: #dfe4ff;
+        font-size: 0.8rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-bottom: 0.8rem;
+      }
+
+      .prompt-line {
+        display: block;
+        height: 0.72rem;
+        border-radius: 999px;
+        background: linear-gradient(90deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04));
+        margin-top: 0.7rem;
+      }
+
+      .prompt-line:nth-child(2) { width: 92%; }
+      .prompt-line:nth-child(3) { width: 78%; }
+      .prompt-line:nth-child(4) { width: 64%; }
+
+      .pipeline-badge {
+        position: absolute;
+        top: 4.6rem;
+        right: -0.8rem;
+        padding: 0.8rem 0.9rem;
+        border-radius: 18px;
+        background: rgba(13, 17, 34, 0.88);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 14px 30px rgba(0, 0, 0, 0.3);
+      }
+
+      .pipeline-badge strong {
+        display: block;
+        font-size: 1.2rem;
+      }
+
+      .pipeline-badge span,
+      .question-item small,
+      .footer-inner,
+      .footer-link {
+        color: var(--muted);
+      }
+
+      .clarify-panel {
+        position: absolute;
+        right: -1rem;
+        bottom: 2rem;
+        width: min(310px, 88%);
+      }
+
+      .question-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.8rem 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        color: #dce2ff;
+      }
+
+      .question-item:last-child { border-bottom: 0; }
+
+      .question-item small {
+        display: block;
+        margin-top: 0.28rem;
+      }
+
+      .status-pill {
+        padding: 0.38rem 0.65rem;
+        border-radius: 999px;
+        background: rgba(123, 255, 178, 0.14);
+        color: var(--success);
+        font-size: 0.78rem;
+        white-space: nowrap;
+      }
+
+      .section { padding: 2.25rem 0; }
+
+      .section-head {
+        align-items: end;
+        margin-bottom: 1.6rem;
+      }
+
+      .section-head h2,
+      .cta-content h3 {
+        margin: 0;
+        line-height: 1.05;
+        letter-spacing: -0.04em;
+      }
+
+      .section-head h2 {
+        font-size: clamp(2rem, 4vw, 3rem);
+      }
+
+      .section-head p {
+        margin: 0;
+        max-width: 44rem;
+      }
+
+      .steps-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .features-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+      .platform-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .stack-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.75rem; }
+
+      .step-card,
+      .feature-card,
+      .stack-panel,
+      .platform-row,
+      .cta-panel {
+        padding: 1.35rem;
+      }
+
+      .step-number,
+      .feature-icon {
+        width: 3rem;
+        height: 3rem;
+        border-radius: 18px;
+        margin-bottom: 1rem;
+        background: linear-gradient(135deg, rgba(159, 92, 255, 0.2), rgba(81, 165, 255, 0.18));
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .step-number {
+        width: 2.3rem;
+        height: 2.3rem;
+        border-radius: 999px;
+        font-weight: 700;
+      }
+
+      .step-card h3,
+      .feature-card h3 {
+        margin: 0 0 0.7rem;
+        font-size: 1.1rem;
+      }
+
+      .step-card p,
+      .feature-card p,
+      .cta-content p,
+      .result-box p {
+        margin: 0;
+      }
+
+      .flow-arrow { position: relative; }
+
+      .flow-arrow::after {
+        content: "";
+        position: absolute;
+        right: -0.65rem;
+        top: calc(50% - 0.5px);
+        width: 1.25rem;
+        height: 1px;
+        background: linear-gradient(90deg, rgba(159, 92, 255, 0.9), rgba(81, 165, 255, 0.9));
+      }
+
+      .platform-badge,
+      .stack-badge {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.7rem;
+        min-height: 4.7rem;
+        border-radius: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.09);
+        background: rgba(255, 255, 255, 0.03);
+        font-weight: 600;
+      }
+
+      .logo-mark {
+        width: 1.9rem;
+        height: 1.9rem;
+        border-radius: 12px;
+        font-size: 0.9rem;
+        font-weight: 800;
+        color: #fff;
+      }
+
+      .logo-chatgpt { background: linear-gradient(135deg, #10a37f, #13d39e); }
+      .logo-claude { background: linear-gradient(135deg, #d97706, #f59e0b); }
+      .logo-gemini { background: linear-gradient(135deg, #4285f4, #9c5cff); }
+      .logo-perplexity { background: linear-gradient(135deg, #1db6b0, #2dd4bf); }
+
+      .stack-badge {
+        min-height: 3.25rem;
+        padding: 0 0.8rem;
+        color: #e6ebff;
+      }
+
+      .cta-panel {
+        margin-top: 1.5rem;
+      }
+
+      .cta-panel::before {
+        background:
+          radial-gradient(circle at 25% 20%, rgba(159, 92, 255, 0.23), transparent 35%),
+          radial-gradient(circle at 82% 75%, rgba(81, 165, 255, 0.22), transparent 34%);
+      }
+
+      .cta-content h3 {
+        margin-bottom: 0.55rem;
+        font-size: clamp(1.5rem, 3vw, 2.2rem);
+      }
+
+      footer {
+        padding: 2.2rem 0 3rem;
+      }
+
+      .footer-inner {
+        font-size: 0.96rem;
+      }
+
+      .reveal {
+        opacity: 0;
+        transform: translateY(28px) scale(0.985);
+        transition: opacity 0.7s ease, transform 0.7s ease;
+      }
+
+      .reveal.is-visible {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+
+      .float { animation: float 7.5s ease-in-out infinite; }
+
+      @keyframes float {
+        0%, 100% { transform: translateY(0px); }
+        50% { transform: translateY(-10px); }
+      }
+
+      @media (max-width: 1080px) {
+        .features-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .stack-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      }
+
+      @media (max-width: 920px) {
+        .nav-links { display: none; }
+        .hero-grid,
+        .steps-grid,
+        .platform-row,
+        .cta-content { grid-template-columns: 1fr; }
+        .hero { padding-top: 4rem; }
+        .hero-visual { min-height: auto; }
+        .clarify-panel { position: static; width: 100%; margin-top: 1rem; }
+        .pipeline-badge { right: 1rem; }
+        .flow-arrow::after { display: none; }
+      }
+
+      @media (max-width: 720px) {
+        h1 { max-width: none; }
+        .section-head,
+        .footer-inner { flex-direction: column; align-items: flex-start; }
+        .features-grid,
+        .stack-grid,
+        .platform-row { grid-template-columns: 1fr; }
+        .nav-inner { padding: 0.95rem 1rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page-shell">
+      <nav class="site-nav container">
+        <div class="nav-inner glass">
+          <a class="brand" href="#top" aria-label="PromptBridge home">
+            <span class="brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M7 8.5C7 5.462 9.462 3 12.5 3S18 5.462 18 8.5c0 1.52-.616 2.896-1.612 3.889L12.5 16.28l-3.889-3.891A5.48 5.48 0 0 1 7 8.5Z"
+                  stroke="white"
+                  stroke-width="1.8"
+                />
+                <path
+                  d="M9.5 17.5h6.5M8 21h8"
+                  stroke="white"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </span>
+            <span>PromptBridge</span>
+          </a>
+          <div class="nav-links">
+            <a href="#how-it-works">How It Works</a>
+            <a href="#features">Features</a>
+            <a href="#stack">Tech Stack</a>
+          </div>
+          <a
+            class="nav-cta"
+            href="https://github.com/Durgeshmundada/promptbridge"
+            target="_blank"
+            rel="noreferrer"
+          >
+            GitHub
+          </a>
+        </div>
+      </nav>
+
+      <main id="top">
+        <section class="hero">
+          <div class="container hero-grid">
+            <div class="hero-copy reveal is-visible">
+              <span class="eyebrow">Chrome Extension &middot; Manifest V3</span>
+              <h1>
+                The
+                <span class="gradient-text">invisible prompt engineer</span>
+                for every AI tab.
+              </h1>
+              <p>
+                PromptBridge intercepts your raw message before it reaches ChatGPT, Claude,
+                Gemini, or Perplexity, then upgrades it through a 7-layer intelligence pipeline
+                with template matching, clarification prompts, persona shaping, PII redaction, and
+                hallucination guardrails.
+              </p>
+
+              <div class="hero-actions">
+                <a
+                  class="btn btn-primary"
+                  href="https://github.com/Durgeshmundada/promptbridge"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Add to Chrome - It's Free
+                </a>
+                <a class="btn btn-secondary" href="#how-it-works">See How It Works</a>
+              </div>
+
+              <div class="hero-highlights">
+                <span class="chip"><span class="dot"></span>7-layer enrichment pipeline</span>
+                <span class="chip"><span class="dot"></span>Enhanced 3-question mode</span>
+                <span class="chip"><span class="dot"></span>MongoDB Atlas template catalog</span>
+              </div>
+            </div>
+
+            <div class="hero-visual reveal">
+              <div class="hero-card glass float">
+                <div class="mock-toolbar">
+                  <div class="browser-dots" aria-hidden="true">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                  <span class="browser-label">PromptBridge is enriching your prompt</span>
+                </div>
+
+                <div class="pipeline-badge">
+                  <strong>7 Layers</strong>
+                  <span>Security, structure, clarity, retrieval, execution</span>
+                </div>
+
+                <div class="mock-panel">
+                  <div class="prompt-box">
+                    <span class="prompt-label">Original Prompt</span>
+                    <span class="prompt-line"></span>
+                    <span class="prompt-line"></span>
+                    <span class="prompt-line"></span>
+                  </div>
+
+                  <div class="result-box">
+                    <span class="panel-label">PromptBridge Output</span>
+                    <p>
+                      Reframed objective, better context, clearer constraints, stronger structure,
+                      safer content, and model-ready formatting in one pass.
+                    </p>
+                  </div>
+                </div>
+
+                <div class="clarify-panel glass">
+                  <span class="panel-label">Enhanced Mode</span>
+                  <div class="question-item">
+                    <div>
+                      Audience & goal
+                      <small>Who is this for, and what should the result achieve?</small>
+                    </div>
+                    <span class="status-pill">Asked</span>
+                  </div>
+                  <div class="question-item">
+                    <div>
+                      Output format
+                      <small>Table, email, roadmap, code, or something else?</small>
+                    </div>
+                    <span class="status-pill">Asked</span>
+                  </div>
+                  <div class="question-item">
+                    <div>
+                      Constraints
+                      <small>Length, tone, risk limits, domain rules, or deadlines?</small>
+                    </div>
+                    <span class="status-pill">Asked</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section class="section" id="how-it-works">
+          <div class="container">
+            <div class="section-head reveal">
+              <div>
+                <span class="eyebrow">How It Works</span>
+                <h2>From rough idea to sharper AI output in three simple steps.</h2>
+              </div>
+              <p>
+                PromptBridge stays out of your way. You type normally, it enriches behind the
+                scenes, and your AI gets a dramatically better prompt with structure, safety, and
+                context built in.
+              </p>
+            </div>
+
+            <div class="steps-grid">
+              <article class="step-card glass reveal flow-arrow">
+                <div class="step-number">1</div>
+                <h3>Type prompt</h3>
+                <p>
+                  Start naturally on ChatGPT, Claude, Gemini, or Perplexity. No prompt engineering
+                  expertise required.
+                </p>
+              </article>
+              <article class="step-card glass reveal flow-arrow">
+                <div class="step-number">2</div>
+                <h3>PromptBridge enriches</h3>
+                <p>
+                  It classifies intent, matches templates across DIRECT / PARTIAL / GENERATE zones,
+                  redacts sensitive data, and clarifies ambiguity.
+                </p>
+              </article>
+              <article class="step-card glass reveal">
+                <div class="step-number">3</div>
+                <h3>Better output</h3>
+                <p>
+                  Your AI receives a cleaner, safer, more structured prompt designed for more useful
+                  and more reliable results.
+                </p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="features">
+          <div class="container">
+            <div class="section-head reveal">
+              <div>
+                <span class="eyebrow">Features</span>
+                <h2>Built like a prompt operating system, not just a text rewriter.</h2>
+              </div>
+              <p>
+                Every layer is designed to reduce ambiguity, improve relevance, and keep prompt flow
+                safe across different AI models.
+              </p>
+            </div>
+
+            <div class="features-grid">
+              <article class="feature-card glass reveal">
+                <div class="feature-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path d="M12 3 4 7.5v9L12 21l8-4.5v-9L12 3Z" stroke="white" stroke-width="1.7" />
+                    <path d="m8.5 10.5 2.3 2.3 4.7-4.8" stroke="white" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </div>
+                <h3>7-Layer Pipeline</h3>
+                <p>Multi-stage enrichment for structure, safety, context expansion, and final prompt refinement.</p>
+              </article>
+
+              <article class="feature-card glass reveal">
+                <div class="feature-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path d="M7 9a5 5 0 1 1 10 0c0 1.8-.85 3.4-2.16 4.42-.63.5-1.34 1.26-1.34 2.08h-3c0-.82-.71-1.58-1.34-2.08A5.57 5.57 0 0 1 7 9Z" stroke="white" stroke-width="1.7" />
+                    <path d="M10 20h4M9.5 17h5" stroke="white" stroke-width="1.7" stroke-linecap="round" />
+                  </svg>
+                </div>
+                <h3>Enhanced Mode</h3>
+                <p>A focused 3-question clarification modal that fills missing context before the final prompt is generated.</p>
+              </article>
+
+              <article class="feature-card glass reveal">
+                <div class="feature-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path d="M5 8.5h6M5 15.5h4M13 8.5h6M11 15.5h8" stroke="white" stroke-width="1.7" stroke-linecap="round" />
+                    <circle cx="10" cy="8.5" r="2.5" stroke="white" stroke-width="1.7" />
+                    <circle cx="8" cy="15.5" r="2.5" stroke="white" stroke-width="1.7" />
+                  </svg>
+                </div>
+                <h3>Template Matching</h3>
+                <p>DIRECT, PARTIAL, and GENERATE zones let PromptBridge reuse, adapt, or create the best-fit structure on demand.</p>
+              </article>
+
+              <article class="feature-card glass reveal">
+                <div class="feature-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path d="M12 4c3.866 0 7 3.134 7 7 0 4.642-4.331 7.731-6.285 8.87a1.4 1.4 0 0 1-1.43 0C9.33 18.73 5 15.642 5 11c0-3.866 3.134-7 7-7Z" stroke="white" stroke-width="1.7" />
+                    <path d="m9.75 11.5 1.5 1.5 3-3" stroke="white" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </div>
+                <h3>PII Redaction</h3>
+                <p>Sensitive details are sanitized before outbound model calls, helping users protect personal and risky information.</p>
+              </article>
+
+              <article class="feature-card glass reveal">
+                <div class="feature-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path d="M5 18a6.5 6.5 0 0 1 13 0M8.5 8.5a3.5 3.5 0 1 0 7 0 3.5 3.5 0 0 0-7 0Z" stroke="white" stroke-width="1.7" stroke-linecap="round" />
+                    <path d="M3 6.5h2.5M18.5 6.5H21M12 2.5V5" stroke="white" stroke-width="1.7" stroke-linecap="round" />
+                  </svg>
+                </div>
+                <h3>Multi-AI Support</h3>
+                <p>Works across ChatGPT, Claude, Gemini, and Perplexity while preserving one unified prompt workflow.</p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="platforms">
+          <div class="container">
+            <div class="section-head reveal">
+              <div>
+                <span class="eyebrow">Supported Platforms</span>
+                <h2>Designed to travel with you across the AI tools you already use.</h2>
+              </div>
+              <p>
+                PromptBridge acts like a universal prompt layer, so your workflow stays consistent
+                even when your preferred AI changes.
+              </p>
+            </div>
+
+            <div class="platform-row glass reveal">
+              <div class="platform-badge"><span class="logo-mark logo-chatgpt">C</span><span>ChatGPT</span></div>
+              <div class="platform-badge"><span class="logo-mark logo-claude">A</span><span>Claude</span></div>
+              <div class="platform-badge"><span class="logo-mark logo-gemini">G</span><span>Gemini</span></div>
+              <div class="platform-badge"><span class="logo-mark logo-perplexity">P</span><span>Perplexity</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="stack">
+          <div class="container">
+            <div class="section-head reveal">
+              <div>
+                <span class="eyebrow">Tech Stack</span>
+                <h2>Modern extension engineering under the hood.</h2>
+              </div>
+              <p>
+                Built with a React + TypeScript UI, a secure service worker architecture, and a
+                MongoDB-backed template service that keeps the prompt system reusable and scalable.
+              </p>
+            </div>
+
+            <div class="stack-panel glass reveal">
+              <div class="stack-grid">
+                <div class="stack-badge">Chrome MV3</div>
+                <div class="stack-badge">React</div>
+                <div class="stack-badge">TypeScript</div>
+                <div class="stack-badge">Vite</div>
+                <div class="stack-badge">Tailwind CSS</div>
+                <div class="stack-badge">Zustand</div>
+                <div class="stack-badge">Node.js</div>
+                <div class="stack-badge">Express</div>
+                <div class="stack-badge">MongoDB Atlas</div>
+                <div class="stack-badge">Jest</div>
+                <div class="stack-badge">Prompt Templates</div>
+                <div class="stack-badge">Service Worker</div>
+              </div>
+            </div>
+
+            <div class="cta-panel glass reveal">
+              <div class="cta-content">
+                <div>
+                  <h3>Ship sharper prompts without changing how you work.</h3>
+                  <p>
+                    PromptBridge fits directly into your current AI workflow and adds high-quality
+                    prompt engineering as a default capability instead of an extra task.
+                  </p>
+                </div>
+                <a
+                  class="btn btn-primary"
+                  href="https://github.com/Durgeshmundada/promptbridge"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Add to Chrome - It's Free
+                </a>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        <div class="container footer-inner">
+          <div>PromptBridge &middot; Invisible prompt engineering for modern AI workflows.</div>
+          <a
+            class="footer-link"
+            href="https://github.com/Durgeshmundada/promptbridge"
+            target="_blank"
+            rel="noreferrer"
+          >
+            View on GitHub
+          </a>
+        </div>
+      </footer>
+    </div>
+    <script>
+      const revealElements = document.querySelectorAll(".reveal");
+
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              entry.target.classList.add("is-visible");
+              observer.unobserve(entry.target);
+            }
+          });
+        },
+        {
+          threshold: 0.16,
+          rootMargin: "0px 0px -40px 0px",
+        },
+      );
+
+      revealElements.forEach((element) => {
+        if (!element.classList.contains("is-visible")) {
+          observer.observe(element);
+        }
+      });
+    </script>
+  </body>
+</html>

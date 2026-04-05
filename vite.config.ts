@@ -180,6 +180,16 @@ function finalizeDistribution(): Plugin {
         }),
       );
 
+      try {
+        await copyFile(path.resolve(projectRoot, 'index.html'), path.resolve(distDirectory, 'index.html'));
+      } catch (error) {
+        const fileError = error as NodeJS.ErrnoException;
+
+        if (fileError.code !== 'ENOENT') {
+          throw error;
+        }
+      }
+
       const contentLoaderPath = path.resolve(distDirectory, 'content', 'contentScript.js');
       const contentLoaderSource = await readFile(contentLoaderPath, 'utf8');
       const contentRuntimeMatch = contentLoaderSource.match(/chrome\.runtime\.getURL\("([^"]+)"\)/);
