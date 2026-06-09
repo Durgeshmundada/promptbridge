@@ -145,13 +145,13 @@ async function createDistributionZip(zipFilePath: string): Promise<void> {
 
 async function main(): Promise<void> {
   const packageMetadata = await readPackageMetadata();
-  const zipFilePath = path.resolve(`promptbridge-v${packageMetadata.version}.zip`);
+  const zipFilePath = path.resolve(DIST_DIRECTORY, `promptbridge-v${packageMetadata.version}.zip`);
 
   await runCommandSequence(getBuildCommands());
   await verifyDistLayout();
   await createDistributionZip(zipFilePath);
 
-  console.log(`Created ${path.basename(zipFilePath)} from the dist/ directory.`);
+  console.log(`Created ${path.relative(process.cwd(), zipFilePath)} from the dist/ directory.`);
 }
 
 void main().catch((error: unknown) => {

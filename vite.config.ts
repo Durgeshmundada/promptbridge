@@ -6,7 +6,7 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv } from 'vite';
 import type { Plugin } from 'vite';
 import type * as Yazl from 'yazl';
-import webExtension from 'vite-plugin-web-extension';
+import webExtension from '@samrum/vite-plugin-web-extension';
 import manifest from './manifest.json';
 
 const require = createRequire(import.meta.url);
@@ -297,27 +297,8 @@ export default defineConfig(({ mode }) => {
     env.PROMPTBRIDGE_TEMPLATE_SERVICE_BASE_URL ||
     env.VITE_PROMPTBRIDGE_TEMPLATE_SERVICE_BASE_URL ||
     'http://127.0.0.1:8787';
-  const geminiKeyDefines = Object.fromEntries(
-    Array.from({ length: 7 }, (_, index) => {
-      const slot = index + 1;
-      const envValue =
-        env[`PROMPTBRIDGE_GEMINI_API_KEY_${slot}`] ||
-        env[`VITE_PROMPTBRIDGE_GEMINI_API_KEY_${slot}`] ||
-        '';
-
-      return [
-        [`__PROMPTBRIDGE_GEMINI_API_KEY_${slot}__`, JSON.stringify(envValue)],
-        [
-          `globalThis.__PROMPTBRIDGE_GEMINI_API_KEY_${slot}__`,
-          JSON.stringify(envValue),
-        ],
-      ];
-    }).flat(),
-  );
-
   return {
     define: {
-      ...geminiKeyDefines,
       __PROMPTBRIDGE_TEMPLATE_SERVICE_BASE_URL__: JSON.stringify(templateServiceBaseUrl),
       'globalThis.__PROMPTBRIDGE_TEMPLATE_SERVICE_BASE_URL__': JSON.stringify(
         templateServiceBaseUrl,

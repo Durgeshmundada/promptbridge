@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import type { Persona } from '../../../types';
 import { injectPersonaContext } from '../personaInjector';
 

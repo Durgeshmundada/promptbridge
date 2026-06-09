@@ -8,7 +8,12 @@ import {
 } from '../../pipeline/layer3/sensitiveDataVault';
 import { usePromptBridgeStore } from '../../store';
 import type { AppSettings } from '../../types';
-import { DEFAULT_APP_SETTINGS, clearHistory } from '../../utils/storage';
+import {
+  DEFAULT_APP_SETTINGS,
+  DEFAULT_OLLAMA_BASE_URL,
+  clearHistory,
+  clearVault,
+} from '../../utils/storage';
 import { API_KEY_FIELDS, SETTINGS_MODEL_OPTIONS } from '../constants';
 
 export interface SettingsPanelProps {}
@@ -32,12 +37,9 @@ const EMPTY_API_KEY_STATE: ApiKeyFieldState = {
 };
 
 function createInitialApiKeyStateMap(): ApiKeyFieldStateMap {
-  return {
-    groqApiKey: { ...EMPTY_API_KEY_STATE },
-    openaiApiKey: { ...EMPTY_API_KEY_STATE },
-    anthropicApiKey: { ...EMPTY_API_KEY_STATE },
-    geminiApiKey: { ...EMPTY_API_KEY_STATE },
-  };
+  return Object.fromEntries(
+    API_KEY_FIELDS.map((field) => [field.id, { ...EMPTY_API_KEY_STATE }]),
+  ) as ApiKeyFieldStateMap;
 }
 
 function getErrorMessage(error: unknown): string {
@@ -87,6 +89,7 @@ export default function SettingsPanel(_props: SettingsPanelProps): JSX.Element {
   );
 
   const settingsJson = useMemo(() => JSON.stringify(settings, null, 2), [settings]);
+  const ollamaBaseUrl = settings.ollamaBaseUrl ?? DEFAULT_OLLAMA_BASE_URL;
   const selectedTargetModel = SETTINGS_MODEL_OPTIONS.includes(
     settings.targetModel as (typeof SETTINGS_MODEL_OPTIONS)[number],
   )
@@ -136,6 +139,26 @@ export default function SettingsPanel(_props: SettingsPanelProps): JSX.Element {
     lockVault();
     setVaultUnlocked(false);
     setVaultStatusMessage('Vault locked. Stored secrets remain encrypted.');
+  };
+
+  const handleClearVault = async (): Promise<void> => {
+    const shouldClear = window.confirm(
+      'Clear all encrypted PromptBridge API keys from this browser vault? This cannot be undone.',
+    );
+
+    if (!shouldClear) {
+      return;
+    }
+
+    try {
+      await clearVault();
+      lockVault();
+      setVaultUnlocked(false);
+      setApiKeyFields(createInitialApiKeyStateMap());
+      setVaultStatusMessage('Vault cleared. Unlock it again before saving new API keys.');
+    } catch (error) {
+      setVaultStatusMessage(getErrorMessage(error));
+    }
   };
 
   const handleSaveApiKey = async (key: ApiKeyFieldId): Promise<void> => {
@@ -258,11 +281,11 @@ export default function SettingsPanel(_props: SettingsPanelProps): JSX.Element {
               API Keys
             </p>
             <h2 className="mt-2 font-[var(--pb-font-display)] text-2xl text-[var(--pb-text)]">
-              Vault-backed provider access
+              Vault-backed Gemini access
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--pb-text-soft)]">
-              Unlock the local vault with a passphrase, then save provider keys without ever
-              revealing stored values back to the page.
+              Unlock the local vault with a passphrase, then save your Gemini key without ever
+              revealing the stored value back to the page.
             </p>
           </div>
           <span
@@ -277,7 +300,7 @@ export default function SettingsPanel(_props: SettingsPanelProps): JSX.Element {
         </div>
 
         <div className="mt-5 rounded-[24px] border border-[var(--pb-border)] bg-[var(--pb-surface-strong)] p-5">
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_auto_auto] xl:items-end">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_auto_auto_auto] xl:items-end">
             <label className="text-sm font-medium text-[var(--pb-text-soft)]">
               Vault passphrase
               <input
@@ -305,6 +328,15 @@ export default function SettingsPanel(_props: SettingsPanelProps): JSX.Element {
               type="button"
             >
               Lock vault
+            </button>
+            <button
+              className="rounded-full bg-[var(--pb-danger-bg)] px-5 py-3 text-sm font-semibold text-[var(--pb-danger)] transition hover:opacity-80"
+              onClick={() => {
+                void handleClearVault();
+              }}
+              type="button"
+            >
+              Clear vault
             </button>
           </div>
           <p className="mt-3 mb-0 text-sm text-[var(--pb-text-soft)]">{vaultStatusMessage}</p>
@@ -457,6 +489,36 @@ export default function SettingsPanel(_props: SettingsPanelProps): JSX.Element {
               }}
               type="number"
               value={settings.vaultTimeoutMinutes}
+            />
+          </label>
+
+          <label className="text-sm font-medium text-[var(--pb-text-soft)]">
+            Ollama base URL
+            <input
+              className="mt-2 w-full rounded-[18px] border border-[var(--pb-border)] bg-[var(--pb-surface-strong)] px-4 py-3 text-sm text-[var(--pb-text)] outline-none transition placeholder:text-[var(--pb-text-subtle)] focus:border-[var(--pb-border-strong)]"
+              onBlur={(event) => {
+                const nextValue = event.target.value.trim() || DEFAULT_OLLAMA_BASE_URL;
+
+                void persistSettings(
+                  {
+                    ...settings,
+                    ollamaBaseUrl: nextValue,
+                  },
+                  `Ollama base URL saved as ${nextValue}.`,
+                );
+              }}
+              onChange={(event) => {
+                void persistSettings(
+                  {
+                    ...settings,
+                    ollamaBaseUrl: event.target.value,
+                  },
+                  'Ollama base URL updated.',
+                );
+              }}
+              placeholder={DEFAULT_OLLAMA_BASE_URL}
+              type="url"
+              value={ollamaBaseUrl}
             />
           </label>
         </div>

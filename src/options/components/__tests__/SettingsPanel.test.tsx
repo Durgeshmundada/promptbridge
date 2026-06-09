@@ -1,11 +1,12 @@
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
-jest.mock('../../../pipeline/layer3/sensitiveDataVault', () => ({
-  deleteSecret: jest.fn(),
-  initVault: jest.fn(),
-  isSessionValid: jest.fn(() => false),
-  lockVault: jest.fn(),
-  storeSecret: jest.fn(),
+vi.mock('../../../pipeline/layer3/sensitiveDataVault', () => ({
+  deleteSecret: vi.fn(),
+  initVault: vi.fn(),
+  isSessionValid: vi.fn(() => false),
+  lockVault: vi.fn(),
+  storeSecret: vi.fn(),
 }));
 
 import SettingsPanel from '../SettingsPanel';
@@ -99,7 +100,7 @@ describe('SettingsPanel', () => {
   });
 
   afterEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
     act(() => {
       usePromptBridgeStore.getState().resetState();
     });

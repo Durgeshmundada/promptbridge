@@ -1,3 +1,4 @@
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import 'fake-indexeddb/auto';
 import type { HistoryEntry } from '../../types';
 import type { StorageError } from '../storage';

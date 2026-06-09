@@ -66,11 +66,12 @@ const OUTPUT_POLICY_BY_INTENT: Record<IntentType, { budget: number; format: stri
 const PROGRAMMING_LANGUAGE_PATTERN =
   /\b(TypeScript|JavaScript|Python|Java|C#|C\+\+|Go|Rust|Ruby|PHP|Kotlin|Swift|SQL)\b/i;
 const ALGORITHMIC_EXPLANATION_PATTERN =
-  /\b(binary search|algorithm|data structure|complexity|runtime|big o|search algorithm|sorting algorithm)\b/i;
+  /\b(binary search|algorithm|data structure|complexity|runtime|big o|search algorithm|sorting algorithm|pseudocode|code)\b/i;
 
 function buildConceptualFormat(prompt: string): string {
   const algorithmicRequest =
-    ALGORITHMIC_EXPLANATION_PATTERN.test(prompt) || /\bexplain how\b/i.test(prompt);
+    ALGORITHMIC_EXPLANATION_PATTERN.test(prompt) ||
+    (PROGRAMMING_LANGUAGE_PATTERN.test(prompt) && /\b(explain|walk me through|step by step|how)\b/i.test(prompt));
 
   if (!algorithmicRequest) {
     return OUTPUT_POLICY_BY_INTENT[IntentType.QUESTION_CONCEPTUAL].format;

@@ -1,3 +1,4 @@
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VaultError } from '../sensitiveDataVault';
 import { webcrypto } from 'node:crypto';
 import { TextDecoder, TextEncoder } from 'node:util';
@@ -119,7 +120,7 @@ describe('sensitiveDataVault', () => {
   });
 
   beforeEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
     mockChromeControls = installMockChrome();
     lockVault();
   });

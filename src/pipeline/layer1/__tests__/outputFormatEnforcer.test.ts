@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { IntentType } from '../../../types';
 import { enforceOutputFormat } from '../outputFormatEnforcer';
 
@@ -41,5 +42,16 @@ describe('outputFormatEnforcer', () => {
     expect(result).toContain('2) Step-by-step algorithm');
     expect(result).toContain('3) Python code with inline comments');
     expect(result).toContain('4) Time/space complexity');
+  });
+
+  it('keeps general conceptual explanations out of the algorithm/code walkthrough format', () => {
+    const result = enforceOutputFormat(
+      'Explain pipelining in CPUs for a beginner.',
+      IntentType.QUESTION_CONCEPTUAL,
+    );
+
+    expect(result).toContain('Concept, Mechanism, Example, and Key Takeaway');
+    expect(result).not.toContain('Time/space complexity');
+    expect(result).not.toContain('code with inline comments');
   });
 });

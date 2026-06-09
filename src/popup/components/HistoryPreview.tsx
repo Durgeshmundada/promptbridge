@@ -1,4 +1,4 @@
-import { POPUP_TEXT } from '../constants';
+import { POPUP_TEXT, getModelDisplayLabel } from '../constants';
 import { usePromptBridgeStore } from '../../store';
 
 export interface HistoryPreviewProps {
@@ -42,9 +42,16 @@ export default function HistoryPreview({
               key={entry.id}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="rounded-full bg-[var(--pb-accent-soft)] px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--pb-accent)]">
-                  {entry.intent.replace(/_/g, ' ')}
-                </span>
+                <div className="flex min-w-0 flex-wrap gap-2">
+                  <span className="rounded-full bg-[var(--pb-accent-soft)] px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--pb-accent)]">
+                    {entry.intent.replace(/_/g, ' ')}
+                  </span>
+                  {entry.model ? (
+                    <span className="rounded-full border border-[var(--pb-border)] px-2.5 py-1 text-[11px] font-medium text-[var(--pb-text-soft)]">
+                      {getModelDisplayLabel(entry.model)}
+                    </span>
+                  ) : null}
+                </div>
                 <span className="text-[11px] text-[var(--pb-text-subtle)]">
                   {formatTimestamp(entry.timestamp)}
                 </span>

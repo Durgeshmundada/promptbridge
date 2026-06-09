@@ -1,0 +1,208 @@
+:host {
+  all: initial;
+  color-scheme: light dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.pb-content-root {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  width: min(340px, calc(100vw - 28px));
+  color: #172033;
+  pointer-events: none;
+}
+
+.pb-content-panel,
+.pb-content-toast,
+.pb-content-modal {
+  border: 1px solid rgba(45, 57, 82, 0.16);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(18px);
+  pointer-events: auto;
+}
+
+.pb-content-panel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: auto;
+  max-width: 100%;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(8, 8, 10, 0.9);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+
+.pb-content-button,
+.pb-content-secondary-button,
+.pb-content-icon-button {
+  border: 0;
+  border-radius: 7px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pb-content-button {
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 11px;
+  background: rgba(10, 10, 12, 0.88);
+  color: #ffffff;
+  white-space: nowrap;
+}
+
+.pb-content-button::before {
+  content: "✦";
+  margin-right: 6px;
+  color: #f59e0b;
+}
+
+.pb-content-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.pb-content-secondary-button {
+  min-height: 34px;
+  padding: 0 12px;
+  background: #eef3ff;
+  color: #204383;
+}
+
+.pb-content-icon-button {
+  width: 30px;
+  height: 30px;
+  background: #eef3ff;
+  color: #204383;
+}
+
+.pb-content-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.78);
+  white-space: nowrap;
+}
+
+.pb-content-toast {
+  width: min(340px, 100%);
+  box-sizing: border-box;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.pb-content-toast-error {
+  border-color: rgba(185, 28, 28, 0.28);
+  background: rgba(254, 242, 242, 0.96);
+  color: #991b1b;
+}
+
+.pb-content-modal {
+  width: min(340px, 100%);
+  box-sizing: border-box;
+  display: grid;
+  gap: 10px;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.pb-content-modal-header,
+.pb-content-modal-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pb-content-modal-header h2,
+.pb-content-modal-header p {
+  margin: 0;
+}
+
+.pb-content-modal-header h2 {
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.pb-content-modal-header p {
+  margin-top: 3px;
+  color: #5c6b82;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.pb-content-question-list {
+  display: grid;
+  gap: 8px;
+}
+
+.pb-content-question {
+  display: grid;
+  gap: 5px;
+  color: #243147;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pb-content-question textarea {
+  min-height: 60px;
+  resize: vertical;
+  border: 1px solid rgba(45, 57, 82, 0.18);
+  border-radius: 7px;
+  padding: 8px;
+  font: inherit;
+  font-weight: 500;
+  line-height: 1.35;
+  color: #172033;
+  background: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  .pb-content-root {
+    color: #e7eefc;
+  }
+
+  .pb-content-panel,
+  .pb-content-toast,
+  .pb-content-modal {
+    border-color: rgba(148, 163, 184, 0.24);
+    background: rgba(15, 23, 42, 0.94);
+    box-shadow: 0 18px 44px rgba(2, 6, 23, 0.46);
+  }
+
+  .pb-content-toggle,
+  .pb-content-question,
+  .pb-content-modal-header p {
+    color: #c6d3e8;
+  }
+
+  .pb-content-secondary-button,
+  .pb-content-icon-button {
+    background: #24314c;
+    color: #dbe7ff;
+  }
+
+  .pb-content-question textarea {
+    border-color: rgba(148, 163, 184, 0.28);
+    background: #101827;
+    color: #e7eefc;
+  }
+}

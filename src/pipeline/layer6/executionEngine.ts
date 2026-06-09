@@ -83,15 +83,18 @@ export function assemblePayload(
     case ModelTarget.GEMINI:
       return {
         model: targetModel,
+        originalPrompt: pipelineState.enrichedPrompt,
         prompt: adaptedPrompt,
         systemPrompt: DEFAULT_SYSTEM_PROMPT,
         maxTokens: DEFAULT_MAX_TOKENS,
         temperature: 0,
       };
     case ModelTarget.LLAMA:
+    case ModelTarget.OLLAMA:
     case ModelTarget.CUSTOM:
       return {
         model: targetModel,
+        originalPrompt: pipelineState.enrichedPrompt,
         prompt: adaptedPrompt,
         maxTokens: DEFAULT_MAX_TOKENS,
         temperature: 0,

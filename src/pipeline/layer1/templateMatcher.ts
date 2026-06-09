@@ -29,8 +29,14 @@ export interface MatchResult {
 }
 
 const PINNED_TEMPLATE_WEIGHT_BOOST = 8;
+export const DIRECT_MATCH_THRESHOLD = 0.9;
+export const ADAPT_MATCH_THRESHOLD = 0.7;
 const GENERATED_TEMPLATES_STORAGE_KEY = 'pb_templates_generated';
 const LEGACY_TEMPLATES_STORAGE_KEY = 'templates';
+const PROGRAMMING_LANGUAGE_SIGNAL_PATTERN =
+  /\b(?:typescript|javascript|python|java|c#|c\+\+|go|rust|ruby|php|kotlin|swift|sql)\b/i;
+const ALGORITHMIC_SIGNAL_PATTERN =
+  /\b(?:binary search|algorithm|data structure|complexity|runtime|big o|pseudocode|code)\b/i;
 
 const TEMPLATE_LIBRARY: PromptTemplate[] = [
   {
@@ -82,6 +88,16 @@ const TEMPLATE_LIBRARY: PromptTemplate[] = [
       'Generate polished creative writing with a specific tone, audience, and artistic constraint set.',
     tags: ['creative', 'writing', 'tone', 'audience', 'narrative'],
     weight: 1.08,
+  },
+  {
+    id: 'concept-explain',
+    intentType: IntentType.QUESTION_CONCEPTUAL,
+    template:
+      'Persona: {{persona_context}}\nExplain {{topic}} clearly.\nCurrent context: {{context}}\nUser goal: {{task}}\nUse domain context: {{domain_context}}\nPreferred structure: 1) Core idea in plain language 2) Why it matters 3) One concrete example or analogy 4) Common misunderstanding or pitfall 5) Key takeaway.\nOutput format: {{output_format}}\nLength: {{length_constraint}}',
+    description:
+      'Explain a general concept in plain language with an example and key takeaway, without forcing code or algorithm structure.',
+    tags: ['explain', 'concept', 'plain-language', 'example', 'analogy'],
+    weight: 1.11,
   },
   {
     id: 'step-by-step-explain',
@@ -303,28 +319,26 @@ function rankTemplates(
     .sort((left, right) => right.similarity - left.similarity);
 }
 
-function mergeTemplateSources(
-  generatedTemplates: PromptTemplate[],
-  legacyTemplates: PromptTemplate[],
-): PromptTemplate[] {
-  const mergedTemplates = cloneTemplateLibrary(TEMPLATE_LIBRARY);
-  const protectedTemplateIds = new Set(mergedTemplates.map((template) => template.id));
-  const appendableTemplates = [...generatedTemplates, ...legacyTemplates];
+function mergeTemplateSources(...templateSources: PromptTemplate[][]): PromptTemplate[] {
+  const mergedTemplates = new Map<string, PromptTemplate>();
 
-  appendableTemplates.forEach((template) => {
-    if (!template.id.trim() || protectedTemplateIds.has(template.id)) {
+  cloneTemplateLibrary(TEMPLATE_LIBRARY).forEach((template) => {
+    mergedTemplates.set(template.id, template);
+  });
+
+  templateSources.flat().forEach((template) => {
+    if (!template.id.trim()) {
       return;
     }
 
-    protectedTemplateIds.add(template.id);
-    mergedTemplates.push({
+    mergedTemplates.set(template.id, {
       ...template,
       tags: [...template.tags],
       ...(template.tfIdfVector ? { tfIdfVector: [...template.tfIdfVector] } : {}),
     });
   });
 
-  return mergedTemplates;
+  return [...mergedTemplates.values()];
 }
 
 function buildQueryText(intentClassification: IntentClassification, rawInput: string): string {
@@ -343,6 +357,10 @@ function computeIntentBonus(
 ): number {
   let bonus = template.intentType === intentClassification.intent ? 0.18 : 0;
   const normalizedInput = rawInput.toLowerCase();
+  const hasProgrammingSignals =
+    PROGRAMMING_LANGUAGE_SIGNAL_PATTERN.test(rawInput) || ALGORITHMIC_SIGNAL_PATTERN.test(rawInput);
+  const explanationSignal =
+    /\b(?:explain|why|what is|what are|tell me about|how|walk me through)\b/.test(normalizedInput);
 
   if (template.id === 'comparison' && /\b(compare|comparison|difference|versus|vs)\b/.test(normalizedInput)) {
     bonus += 0.16;
@@ -361,8 +379,18 @@ function computeIntentBonus(
   }
 
   if (
+    template.id === 'concept-explain' &&
+    explanationSignal &&
+    !hasProgrammingSignals &&
+    !/\b(compare|comparison|difference|versus|vs)\b/.test(normalizedInput)
+  ) {
+    bonus += 0.18;
+  }
+
+  if (
     template.id === 'step-by-step-explain' &&
-    /\b(explain|walk me through|step by step|how)\b/.test(normalizedInput)
+    (/\b(step by step|walk me through)\b/.test(normalizedInput) ||
+      (explanationSignal && hasProgrammingSignals))
   ) {
     bonus += 0.18;
   }
@@ -372,6 +400,15 @@ function computeIntentBonus(
     /\b(binary search|algorithm|data structure|complexity|runtime|big o)\b/.test(normalizedInput)
   ) {
     bonus += 0.16;
+  }
+
+  if (
+    template.id === 'step-by-step-explain' &&
+    explanationSignal &&
+    !hasProgrammingSignals &&
+    !/\b(step by step|walk me through)\b/.test(normalizedInput)
+  ) {
+    bonus -= 0.16;
   }
 
   return bonus;
@@ -391,14 +428,14 @@ export function matchTemplates(
 }
 
 /**
- * Maps a numeric match score into one of the three template-resolution zones.
+ * Maps a numeric match score into the active template-resolution zones.
  */
 export function getMatchZone(score: number): MatchZone {
-  if (score >= 0.8) {
+  if (score >= DIRECT_MATCH_THRESHOLD) {
     return 'DIRECT';
   }
 
-  if (score >= 0.5) {
+  if (score >= ADAPT_MATCH_THRESHOLD) {
     return 'PARTIAL';
   }
 
@@ -513,7 +550,7 @@ export async function getAllTemplates(): Promise<PromptTemplate[]> {
   const runtimeTemplates = await loadTemplatesFromRuntime();
 
   if (runtimeTemplates && runtimeTemplates.length > 0) {
-    return cloneTemplateLibrary(runtimeTemplates);
+    return mergeTemplateSources(runtimeTemplates);
   }
 
   try {

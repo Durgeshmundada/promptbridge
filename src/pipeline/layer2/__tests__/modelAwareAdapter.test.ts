@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { ModelTarget } from '../../../types';
 import { adaptPromptForModel } from '../modelAwareAdapter';
 

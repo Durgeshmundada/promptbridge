@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import MicroQuestionPrompt from '../MicroQuestionPrompt';
 import { usePromptBridgeStore } from '../../../store';
@@ -24,7 +25,7 @@ describe('MicroQuestionPrompt', () => {
       });
     });
 
-    const onSubmit = jest.fn();
+    const onSubmit = vi.fn();
     render(<MicroQuestionPrompt onSubmit={onSubmit} />);
 
     expect(

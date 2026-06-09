@@ -1,5 +1,6 @@
 import {
   ConfidenceLevel,
+  type MatchZone,
   ModelTarget,
   type IntentType,
   type PipelineStageId,
@@ -11,6 +12,9 @@ export const POPUP_MODEL_OPTIONS = [
   ModelTarget.GPT4O,
   ModelTarget.CLAUDE,
   ModelTarget.GEMINI,
+  ModelTarget.LLAMA,
+  ModelTarget.OLLAMA,
+  ModelTarget.CUSTOM,
 ] as const;
 
 export const POPUP_TEXT = {
@@ -50,6 +54,13 @@ export const POPUP_TEXT = {
     completeMessage: 'PromptBridge finished the latest run.',
     errorMessage: 'PromptBridge stopped because the latest run failed.',
   },
+  errors: {
+    default: 'PromptBridge could not complete that request. Try again after checking settings.',
+    vaultLocked: 'Unlock the vault in Settings before running a model request.',
+    commandRejected: 'The command request was cancelled.',
+    noTemplateMatch: 'PromptBridge could not find a usable template for this prompt.',
+    imageRead: 'PromptBridge could not read that image file.',
+  },
   interactions: {
     microQuestionTitle: 'Need one clarification',
     microQuestionPlaceholder: 'Type the missing detail here.',
@@ -83,6 +94,9 @@ export const POPUP_TEXT = {
     redacted: 'Redacted data',
     rawLabel: 'Raw input',
     enrichedLabel: 'Enriched prompt',
+    copyRaw: 'Copy raw',
+    copyEnriched: 'Copy enriched',
+    copied: 'Copied',
     readyHint:
       'Expand to inspect raw prompt text, enriched additions, neutralized language, and redactions.',
     loadingHint: 'Preparing the first-use diff view.',
@@ -192,6 +206,8 @@ export function getModelDisplayLabel(model: ModelTarget): string {
       return 'Gemini';
     case ModelTarget.LLAMA:
       return 'Llama';
+    case ModelTarget.OLLAMA:
+      return 'Ollama';
     case ModelTarget.CUSTOM:
       return 'Custom';
     default: {
@@ -199,6 +215,28 @@ export function getModelDisplayLabel(model: ModelTarget): string {
       return unreachableModel;
     }
   }
+}
+
+export function getPopupErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : '';
+
+  if (/vault/i.test(message) || /api key/i.test(message)) {
+    return POPUP_TEXT.errors.vaultLocked;
+  }
+
+  if (/command.*rejected|cancel/i.test(message)) {
+    return POPUP_TEXT.errors.commandRejected;
+  }
+
+  if (/template/i.test(message) && /match|available|usable/i.test(message)) {
+    return POPUP_TEXT.errors.noTemplateMatch;
+  }
+
+  if (/image|file/i.test(message) && /read/i.test(message)) {
+    return POPUP_TEXT.errors.imageRead;
+  }
+
+  return POPUP_TEXT.errors.default;
 }
 
 export function getPipelineStatusMessage(
@@ -232,8 +270,18 @@ export function formatComplexityLabel(raw: number, enriched: number, delta: numb
   return `Raw: ${raw}/10 -> Enriched: ${enriched}/10 (${signedDelta})`;
 }
 
-export function formatMatchScoreLabel(score: number): string {
-  return `Score: ${Math.round(score * 100).toString()}%`;
+export function formatMatchScoreLabel(score: number, zone: MatchZone = 'DIRECT'): string {
+  const scoreLabel = `${Math.round(score * 100).toString()}%`;
+
+  switch (zone) {
+    case 'DIRECT':
+      return `Score: ${scoreLabel}`;
+    case 'PARTIAL':
+      return `Adapted template: ${scoreLabel}`;
+    case 'GENERATE':
+    default:
+      return `Nearest template: ${scoreLabel}`;
+  }
 }
 
 export function formatExecutionTime(milliseconds: number): string {

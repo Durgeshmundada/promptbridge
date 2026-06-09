@@ -1,18 +1,25 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type * as StorageModule from '../../../utils/storage';
 
-const loadHistoryMock = jest.fn();
-const getHistoryPageMock = jest.fn();
-const searchHistoryMock = jest.fn();
-const exportHistoryAsJsonMock = jest.fn();
-const exportHistoryAsCsvMock = jest.fn();
+const loadHistoryMock = vi.fn();
+const getHistoryPageMock = vi.fn();
+const searchHistoryMock = vi.fn();
+const exportHistoryAsJsonMock = vi.fn();
+const exportHistoryAsCsvMock = vi.fn();
 
-jest.mock('../../../utils/storage', () => ({
-  exportHistoryAsCSV: (...args: unknown[]) => exportHistoryAsCsvMock(...args),
-  exportHistoryAsJSON: (...args: unknown[]) => exportHistoryAsJsonMock(...args),
-  getHistoryPage: (...args: unknown[]) => getHistoryPageMock(...args),
-  loadHistory: (...args: unknown[]) => loadHistoryMock(...args),
-  searchHistory: (...args: unknown[]) => searchHistoryMock(...args),
-}));
+vi.mock('../../../utils/storage', async () => {
+  const actual = await vi.importActual<typeof StorageModule>('../../../utils/storage');
+
+  return {
+    ...actual,
+    exportHistoryAsCSV: (...args: unknown[]) => exportHistoryAsCsvMock(...args),
+    exportHistoryAsJSON: (...args: unknown[]) => exportHistoryAsJsonMock(...args),
+    getHistoryPage: (...args: unknown[]) => getHistoryPageMock(...args),
+    loadHistory: (...args: unknown[]) => loadHistoryMock(...args),
+    searchHistory: (...args: unknown[]) => searchHistoryMock(...args),
+  };
+});
 
 import HistoryTimeline from '../HistoryTimeline';
 import { usePromptBridgeStore } from '../../../store';
@@ -49,7 +56,7 @@ describe('HistoryTimeline', () => {
   });
 
   afterEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     act(() => {
       usePromptBridgeStore.getState().resetState();
     });

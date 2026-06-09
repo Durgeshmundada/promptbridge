@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
 import ComplexityBadge from '../ComplexityBadge';
 import {
@@ -96,7 +97,7 @@ describe('popup display helpers', () => {
 
     expect(screen.getByText('Raw: 3/10 -> Enriched: 8/10 (+5)')).toBeTruthy();
     expect(screen.getByText('New template generated and saved')).toBeTruthy();
-    expect(screen.getByText('Score: 94%')).toBeTruthy();
+    expect(screen.getByText('Nearest template: 94%')).toBeTruthy();
     expect(screen.getByText('Saved to your template library')).toBeTruthy();
   });
 });

@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { scorePromptComplexity } from '../promptComplexityScorer';
 
 describe('promptComplexityScorer', () => {

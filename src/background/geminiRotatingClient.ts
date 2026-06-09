@@ -89,7 +89,6 @@ const GEMINI_EXECUTION_MODEL = 'gemini-2.0-flash';
 const GEMINI_LIST_MODELS_ENDPOINT = '/models';
 const GEMINI_VAULT_SECRET_KEY = 'geminiApiKey';
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
-const ROTATABLE_STATUS_CODES = new Set([401, 403, 429, 500, 502, 503, 504]);
 const GEMINI_LIMIT_ERROR_PATTERNS = [
   /quota/i,
   /rate[\s-]?limit/i,
@@ -99,24 +98,6 @@ const GEMINI_LIMIT_ERROR_PATTERNS = [
   /billing/i,
   /exceeded/i,
 ] as const;
-const GEMINI_KEY_GLOBAL_NAMES = [
-  '__PROMPTBRIDGE_GEMINI_API_KEY_1__',
-  '__PROMPTBRIDGE_GEMINI_API_KEY_2__',
-  '__PROMPTBRIDGE_GEMINI_API_KEY_3__',
-  '__PROMPTBRIDGE_GEMINI_API_KEY_4__',
-  '__PROMPTBRIDGE_GEMINI_API_KEY_5__',
-  '__PROMPTBRIDGE_GEMINI_API_KEY_6__',
-  '__PROMPTBRIDGE_GEMINI_API_KEY_7__',
-] as const;
-
-let currentKeyIndex = 0;
-let keyRotationLock: Promise<void> = Promise.resolve();
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    globalThis.setTimeout(resolve, ms);
-  });
-}
 
 function normalizeInlineImage(imageData: string): {
   base64Data: string;
@@ -179,85 +160,24 @@ async function fetchWithTimeout(
   }
 }
 
-async function withKeyRotationLock<T>(action: () => Promise<T> | T): Promise<T> {
-  const previousLock = keyRotationLock;
-  let releaseLock!: () => void;
-
-  keyRotationLock = new Promise<void>((resolve) => {
-    releaseLock = resolve;
-  });
-
-  await previousLock;
-
-  try {
-    return await action();
-  } finally {
-    releaseLock();
-  }
-}
-
-async function getCurrentKeyIndex(totalKeys: number): Promise<number> {
-  return withKeyRotationLock(() => {
-    if (currentKeyIndex >= totalKeys) {
-      currentKeyIndex = 0;
-    }
-
-    return currentKeyIndex;
-  });
-}
-
-async function updateCurrentKeyIndex(nextIndex: number): Promise<void> {
-  await withKeyRotationLock(() => {
-    currentKeyIndex = nextIndex;
-  });
-}
-
 function getGeminiApiUrl(pathname: string): string {
   return `${GEMINI_API_BASE_URL}${pathname}`;
 }
 
-function getConfiguredGeminiEnvKeys(): GeminiApiKeyRecord[] {
-  const globalScope = globalThis as typeof globalThis & Record<string, unknown>;
-
-  return GEMINI_KEY_GLOBAL_NAMES.flatMap((globalName, index) => {
-    const keyValue = typeof globalScope[globalName] === 'string' ? globalScope[globalName].trim() : '';
-
-    if (!keyValue) {
-      return [];
-    }
-
-    return [
-      {
-        slot: index + 1,
-        value: keyValue,
-        source: 'env' as const,
-      },
-    ];
-  });
-}
-
-async function getGeminiApiKeys(): Promise<GeminiApiKeyRecord[]> {
-  const configuredEnvKeys = getConfiguredGeminiEnvKeys();
-
-  if (configuredEnvKeys.length > 0) {
-    return configuredEnvKeys;
-  }
-
+async function getGeminiApiKey(): Promise<GeminiApiKeyRecord> {
   const vaultKey = await retrieveSecret(GEMINI_VAULT_SECRET_KEY);
 
   if (vaultKey?.trim()) {
-    return [
-      {
-        slot: 1,
-        value: vaultKey.trim(),
-        source: 'vault',
-      },
-    ];
+    return {
+      slot: 1,
+      value: vaultKey.trim(),
+      source: 'vault',
+    };
   }
 
   throw new GeminiRotationError(
     401,
-    'PromptBridge could not find any Gemini API keys. Add PROMPTBRIDGE_GEMINI_API_KEY_1 through PROMPTBRIDGE_GEMINI_API_KEY_7 to .env.local or store geminiApiKey in the vault.',
+    'PromptBridge could not find a Gemini API key. Store geminiApiKey in the vault and unlock the vault before retrying.',
   );
 }
 
@@ -283,17 +203,6 @@ function isGeminiLimitError(
   return GEMINI_LIMIT_ERROR_PATTERNS.some((pattern) => pattern.test(errorText));
 }
 
-function shouldRotateKey(
-  statusCode: number,
-  responseBody: { error?: GeminiApiError } | null,
-): boolean {
-  if (isGeminiLimitError(statusCode, responseBody)) {
-    return true;
-  }
-
-  return ROTATABLE_STATUS_CODES.has(statusCode);
-}
-
 function buildGeminiErrorMessage(
   statusCode: number,
   responseBody: { error?: GeminiApiError } | null,
@@ -303,11 +212,11 @@ function buildGeminiErrorMessage(
     `Gemini request failed with status ${statusCode}.`;
 
   if (statusCode === 401 || statusCode === 403) {
-    return 'Gemini authentication failed. Verify the configured API keys.';
+    return 'Gemini authentication failed. Verify the configured API key.';
   }
 
   if (isGeminiLimitError(statusCode, responseBody)) {
-    return 'Gemini quota or rate limits were reached across the available API keys.';
+    return 'Gemini quota or rate limits were reached for the configured API key.';
   }
 
   if (statusCode === 503) {
@@ -437,91 +346,50 @@ async function performRotatingGeminiJsonRequest<TResponse extends { error?: Gemi
   pathname: string,
   buildRequestInit: (apiKey: string) => RequestInit,
 ): Promise<{ responseBody: TResponse; keySlot: number }> {
-  const keyRecords = await getGeminiApiKeys();
-  const startIndex = await getCurrentKeyIndex(keyRecords.length);
-  let lastError: GeminiRotationError | null = null;
+  const keyRecord = await getGeminiApiKey();
 
-  for (let attempt = 0; attempt < keyRecords.length; attempt += 1) {
-    const keyIndex = (startIndex + attempt) % keyRecords.length;
-    const keyRecord = keyRecords[keyIndex];
-
-    console.info(
-      `[PromptBridge][GeminiRotation] Using Gemini key slot ${keyRecord.slot}/${keyRecords.length} (${keyRecord.source}) for ${operationLabel}.`,
-    );
-
-    try {
-      const requestInit = buildRequestInit(keyRecord.value);
-      const requestHeaders =
-        requestInit.headers && typeof requestInit.headers === 'object'
-          ? (requestInit.headers as Record<string, string>)
-          : {};
-      const response = await fetchWithTimeout(getGeminiApiUrl(pathname), {
-        ...requestInit,
-        headers: {
-          ...requestHeaders,
-          'x-goog-api-key': keyRecord.value,
-        },
-      });
-      const responseBody = await parseJsonResponse<TResponse>(response);
-
-      if (response.ok && responseBody !== null) {
-        await updateCurrentKeyIndex(keyIndex);
-        return {
-          responseBody,
-          keySlot: keyRecord.slot,
-        };
-      }
-
-      const normalizedError = new GeminiRotationError(
-        response.status,
-        buildGeminiErrorMessage(response.status, responseBody),
-        responseBody ?? undefined,
-      );
-
-      if (!shouldRotateKey(response.status, responseBody) || attempt === keyRecords.length - 1) {
-        throw normalizedError;
-      }
-
-      lastError = normalizedError;
-
-      const nextKeyRecord = keyRecords[(keyIndex + 1) % keyRecords.length];
-      console.warn(
-        `[PromptBridge][GeminiRotation] Switching from Gemini key slot ${keyRecord.slot} to ${nextKeyRecord.slot} after ${operationLabel} failed with ${response.status}.`,
-      );
-      await updateCurrentKeyIndex((keyIndex + 1) % keyRecords.length);
-      await delay(150);
-    } catch (error) {
-      const normalizedError =
-        error instanceof GeminiRotationError
-          ? error
-          : new GeminiRotationError(
-              500,
-              error instanceof Error ? error.message : 'An unknown Gemini request error occurred.',
-              error,
-            );
-
-      if (attempt === keyRecords.length - 1 || !ROTATABLE_STATUS_CODES.has(normalizedError.code)) {
-        throw normalizedError;
-      }
-
-      lastError = normalizedError;
-
-      const nextKeyRecord = keyRecords[(keyIndex + 1) % keyRecords.length];
-      console.warn(
-        `[PromptBridge][GeminiRotation] Switching from Gemini key slot ${keyRecord.slot} to ${nextKeyRecord.slot} after ${operationLabel} failed: ${normalizedError.message}`,
-      );
-      await updateCurrentKeyIndex((keyIndex + 1) % keyRecords.length);
-      await delay(150);
-    }
-  }
-
-  throw (
-    lastError ??
-    new GeminiRotationError(
-      503,
-      'All configured Gemini API keys failed for the current request.',
-    )
+  console.info(
+    `[PromptBridge][GeminiClient] Using the configured Gemini API key (${keyRecord.source}) for ${operationLabel}.`,
   );
+
+  try {
+    const requestInit = buildRequestInit(keyRecord.value);
+    const requestHeaders =
+      requestInit.headers && typeof requestInit.headers === 'object'
+        ? (requestInit.headers as Record<string, string>)
+        : {};
+    const response = await fetchWithTimeout(getGeminiApiUrl(pathname), {
+      ...requestInit,
+      headers: {
+        ...requestHeaders,
+        'x-goog-api-key': keyRecord.value,
+      },
+    });
+    const responseBody = await parseJsonResponse<TResponse>(response);
+
+    if (response.ok && responseBody !== null) {
+      return {
+        responseBody,
+        keySlot: keyRecord.slot,
+      };
+    }
+
+    throw new GeminiRotationError(
+      response.status,
+      buildGeminiErrorMessage(response.status, responseBody),
+      responseBody ?? undefined,
+    );
+  } catch (error) {
+    if (error instanceof GeminiRotationError) {
+      throw error;
+    }
+
+    throw new GeminiRotationError(
+      500,
+      error instanceof Error ? error.message : 'An unknown Gemini request error occurred.',
+      error,
+    );
+  }
 }
 
 export async function executeGeminiPayload(

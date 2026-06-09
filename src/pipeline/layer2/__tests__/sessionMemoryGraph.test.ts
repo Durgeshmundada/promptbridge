@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { IntentType } from '../../../types';
 import type { SessionNode } from '../../../types';
 import { buildSessionMemoryGraph } from '../sessionMemoryGraph';
@@ -78,6 +79,28 @@ describe('sessionMemoryGraph', () => {
           promptId: 'history-node',
           enrichedPrompt: 'Review indemnity language in the reseller agreement.',
           rawResponse: 'Legal summary.',
+        }),
+      ],
+    );
+
+    expect(result.relevantContext).toBe('');
+  });
+
+  it('ignores PromptBridge boilerplate so unrelated prompts are not linked through the product name', () => {
+    const result = buildSessionMemoryGraph(
+      createNode({
+        promptId: 'new-node',
+        timestamp: '2026-04-05T12:30:00.000Z',
+        enrichedPrompt:
+          'Explain pipelining in CPUs.\n\nPromptBridge Output Contract:\n- Intent: QUESTION_CONCEPTUAL',
+        rawResponse: 'CPU pipeline explanation.',
+      }),
+      [
+        createNode({
+          promptId: 'history-node',
+          enrichedPrompt:
+            'How can we reduce LLM hallucinations?\n\nPromptBridge Output Contract:\n- Intent: QUESTION_CONCEPTUAL',
+          rawResponse: 'Hallucination mitigation notes.',
         }),
       ],
     );

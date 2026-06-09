@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import { ModelTarget } from '../types';
+import { adaptPromptForModel } from '../pipeline/layer2/modelAwareAdapter';
 import type {
   ApiPayload,
   HistoryEntry,
@@ -14,11 +15,13 @@ import type {
   SaveTemplateRuntimeRequest,
 } from '../utils/templateServiceRuntime';
 import {
-  CLAUDE_VISION_MODEL,
   type ClaudeVisionRuntimeRequest,
   type ClaudeVisionRuntimeSuccessResponse,
 } from '../pipeline/layer4/claudeVisionBridge';
-import { retrieveSecret } from '../pipeline/layer3/sensitiveDataVault';
+import { browser } from '../lib/browser';
+import { registerMessageRouter } from './messageRouter';
+import { callLlm, LlmClientError } from './llm/client';
+import { createOllamaProviderConfig } from './llm/ollamaClient';
 import {
   executeGeminiPayload,
   GeminiRotationError,
@@ -33,7 +36,9 @@ import type {
 } from '../utils/groq';
 import {
   appendHistoryEntry,
+  DEFAULT_APP_SETTINGS,
   ensureStorageDefaults,
+  loadAppSettings,
   loadPromptTemplates,
   savePromptRating,
   savePromptTemplates,
@@ -52,7 +57,7 @@ interface ExecuteLlmRequest {
   payload: ApiPayload;
 }
 
-type RuntimeRequest =
+export type RuntimeRequest =
   | { type: 'PING' }
   | { type: 'OPEN_OPTIONS' }
   | { type: 'GET_ACTIVE_CONTEXT' }
@@ -71,7 +76,7 @@ interface SuccessResponse {
   ok: true;
 }
 
-interface ErrorResponse {
+export interface ErrorResponse {
   ok: false;
   error: string;
   code?: number;
@@ -104,91 +109,8 @@ interface SaveTemplateSuccessResponse extends SuccessResponse {
   template: PromptTemplate;
 }
 
-interface ExecuteLlmErrorResponse extends ErrorResponse {
+export interface ExecuteLlmErrorResponse extends ErrorResponse {
   code: number;
-}
-
-interface OpenAiTextContentPart {
-  type: 'text';
-  text: string;
-}
-
-interface OpenAiImageContentPart {
-  type: 'image_url';
-  image_url: {
-    url: string;
-  };
-}
-
-type OpenAiUserMessageContent = string | Array<OpenAiTextContentPart | OpenAiImageContentPart>;
-
-interface OpenAiChatCompletionRequestBody {
-  model: string;
-  messages: Array<{
-    role: 'system' | 'user';
-    content: string | OpenAiUserMessageContent;
-  }>;
-  max_completion_tokens: number;
-  temperature?: number;
-}
-
-interface OpenAiResponseTextPart {
-  type?: string;
-  text?: string;
-}
-
-interface OpenAiChatCompletionResponseBody {
-  choices?: Array<{
-    message?: {
-      content?: string | OpenAiResponseTextPart[] | null;
-    };
-  }>;
-  error?: {
-    message?: string;
-  };
-}
-
-interface ClaudeApiImageSource {
-  type: 'base64';
-  media_type: string;
-  data: string;
-}
-
-interface ClaudeApiImageBlock {
-  type: 'image';
-  source: ClaudeApiImageSource;
-}
-
-interface ClaudeApiTextBlock {
-  type: 'text';
-  text: string;
-}
-
-type ClaudeApiUserContentBlock = ClaudeApiImageBlock | ClaudeApiTextBlock;
-
-interface ClaudeApiRequestBody {
-  model: string;
-  max_tokens: number;
-  temperature: number;
-  system: string;
-  messages: Array<{
-    role: 'user';
-    content: ClaudeApiUserContentBlock[];
-  }>;
-}
-
-interface ClaudeApiResponseContentBlock {
-  type: string;
-  text?: string;
-}
-
-interface ClaudeApiResponseBody {
-  model?: string;
-  stop_reason?: string | null;
-  content?: ClaudeApiResponseContentBlock[];
-  error?: {
-    message?: string;
-  };
 }
 
 interface TemplateServiceLoadResponse {
@@ -209,16 +131,10 @@ interface TemplateCatalogCacheEntry {
   updatedAt: number;
 }
 
-const CLAUDE_API_ENDPOINT = 'https://api.anthropic.com/v1/messages';
-const CLAUDE_VAULT_SECRET_KEY = 'anthropicApiKey';
-const CLAUDE_API_VERSION = '2023-06-01';
-const OPENAI_CHAT_COMPLETIONS_ENDPOINT = 'https://api.openai.com/v1/chat/completions';
-const OPENAI_EXECUTION_MODEL = 'gpt-4o';
-const OPENAI_VAULT_SECRET_KEY = 'openaiApiKey';
-const CLAUDE_EXECUTION_MODEL = 'claude-3-5-sonnet-20241022';
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const RETRY_DELAYS_MS = [1_000, 2_000, 4_000] as const;
 const RETRYABLE_STATUS_CODES = new Set([429, 503]);
+const PROVIDER_FAILOVER_STATUS_CODES = new Set([401, 403, 429, 500, 502, 503, 504]);
 const TEMPLATE_SERVICE_ENDPOINT_PATH = '/api/templates';
 const TEMPLATE_MEMORY_CACHE_TTL_MS = 60_000;
 const templateCatalogMemoryCache = new Map<TemplateCacheKey, TemplateCatalogCacheEntry>();
@@ -239,7 +155,7 @@ class ServiceWorkerApiError extends Error {
   }
 }
 
-function getErrorMessage(error: unknown): string {
+export function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
@@ -247,7 +163,7 @@ function getErrorMessage(error: unknown): string {
   return 'An unknown extension error occurred.';
 }
 
-function getErrorCode(error: unknown): number | undefined {
+export function getErrorCode(error: unknown): number | undefined {
   if (error instanceof ServiceWorkerApiError || error instanceof GeminiRotationError) {
     return error.code;
   }
@@ -255,7 +171,7 @@ function getErrorCode(error: unknown): number | undefined {
   return undefined;
 }
 
-function isRestrictedContentScriptRequest(message: RuntimeRequest): boolean {
+export function isRestrictedContentScriptRequest(message: RuntimeRequest): boolean {
   return (
     message.type === 'CLAUDE_VISION_REQUEST' ||
     message.type === 'GROQ_LIST_MODELS' ||
@@ -267,53 +183,6 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     globalThis.setTimeout(resolve, ms);
   });
-}
-
-function normalizeInlineImage(imageData: string): {
-  base64Data: string;
-  dataUrl: string;
-  mimeType: string;
-} {
-  const dataUrlMatch = imageData.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
-
-  if (dataUrlMatch?.[1] && dataUrlMatch[2]) {
-    return {
-      mimeType: dataUrlMatch[1],
-      base64Data: dataUrlMatch[2],
-      dataUrl: imageData,
-    };
-  }
-
-  return {
-    mimeType: 'image/png',
-    base64Data: imageData,
-    dataUrl: `data:image/png;base64,${imageData}`,
-  };
-}
-
-async function getVaultApiKey(secretKey: string, providerLabel: string): Promise<string> {
-  try {
-    const secretValue = await retrieveSecret(secretKey);
-
-    if (secretValue?.trim()) {
-      return secretValue.trim();
-    }
-
-    throw new ServiceWorkerApiError(
-      401,
-      `PromptBridge could not find a ${providerLabel} API key in the vault. Store it under "${secretKey}" and unlock the vault before retrying.`,
-    );
-  } catch (error) {
-    if (error instanceof ServiceWorkerApiError) {
-      throw error;
-    }
-
-    throw new ServiceWorkerApiError(
-      401,
-      `PromptBridge could not access the vault for the ${providerLabel} API key. Unlock the vault and try again.`,
-      error,
-    );
-  }
 }
 
 async function parseJsonResponse<T>(response: Response): Promise<T | null> {
@@ -346,6 +215,66 @@ function buildProviderErrorMessage(
   }
 
   return fallbackMessage;
+}
+
+function getProviderLabelForModel(model: ModelTarget): string {
+  switch (model) {
+    case ModelTarget.GROQ:
+      return 'Groq-compatible Gemini';
+    case ModelTarget.GPT4O:
+      return 'OpenAI';
+    case ModelTarget.CLAUDE:
+      return 'Anthropic';
+    case ModelTarget.GEMINI:
+      return 'Gemini';
+    case ModelTarget.LLAMA:
+      return 'Llama';
+    case ModelTarget.OLLAMA:
+      return 'Ollama';
+    case ModelTarget.CUSTOM:
+      return 'Custom';
+    default: {
+      const unreachableModel: never = model;
+      return unreachableModel;
+    }
+  }
+}
+
+function getProviderFailoverOrder(model: ModelTarget): ModelTarget[] {
+  switch (model) {
+    case ModelTarget.OLLAMA:
+      return [ModelTarget.OLLAMA, ModelTarget.GEMINI];
+    case ModelTarget.GROQ:
+    case ModelTarget.GPT4O:
+    case ModelTarget.CLAUDE:
+    case ModelTarget.GEMINI:
+    case ModelTarget.LLAMA:
+    case ModelTarget.CUSTOM:
+      return [ModelTarget.GEMINI];
+    default: {
+      const unreachableModel: never = model;
+      return [ModelTarget.GEMINI, unreachableModel].slice(0, 1);
+    }
+  }
+}
+
+function shouldFailOverToAnotherProvider(error: unknown): boolean {
+  const code = getErrorCode(error);
+  return typeof code === 'number' && PROVIDER_FAILOVER_STATUS_CODES.has(code);
+}
+
+function buildProviderAttemptPayload(payload: ApiPayload, targetModel: ModelTarget): ApiPayload {
+  if (targetModel === payload.model) {
+    return payload;
+  }
+
+  const basePrompt = payload.originalPrompt ?? payload.prompt;
+
+  return {
+    ...payload,
+    model: targetModel,
+    prompt: adaptPromptForModel(basePrompt, targetModel),
+  };
 }
 
 async function fetchWithTimeout(
@@ -436,8 +365,8 @@ async function performJsonRequestWithBackoff<TResponse>(
 
 function queryTabs(queryInfo: chrome.tabs.QueryInfo): Promise<chrome.tabs.Tab[]> {
   return new Promise((resolve, reject) => {
-    chrome.tabs.query(queryInfo, (tabs) => {
-      const runtimeError = chrome.runtime.lastError;
+    browser.tabs.query(queryInfo, (tabs) => {
+      const runtimeError = browser.runtime.lastError;
       if (runtimeError) {
         reject(new Error(runtimeError.message));
         return;
@@ -450,8 +379,8 @@ function queryTabs(queryInfo: chrome.tabs.QueryInfo): Promise<chrome.tabs.Tab[]>
 
 function sendTabMessage<TResponse>(tabId: number, message: object): Promise<TResponse> {
   return new Promise((resolve, reject) => {
-    chrome.tabs.sendMessage(tabId, message, (response: TResponse) => {
-      const runtimeError = chrome.runtime.lastError;
+    browser.tabs.sendMessage(tabId, message, (response: TResponse) => {
+      const runtimeError = browser.runtime.lastError;
       if (runtimeError) {
         reject(new Error(runtimeError.message));
         return;
@@ -464,8 +393,8 @@ function sendTabMessage<TResponse>(tabId: number, message: object): Promise<TRes
 
 function openOptionsPage(): Promise<void> {
   return new Promise((resolve, reject) => {
-    chrome.runtime.openOptionsPage(() => {
-      const runtimeError = chrome.runtime.lastError;
+    browser.runtime.openOptionsPage(() => {
+      const runtimeError = browser.runtime.lastError;
       if (runtimeError) {
         reject(new Error(runtimeError.message));
         return;
@@ -474,11 +403,6 @@ function openOptionsPage(): Promise<void> {
       resolve();
     });
   });
-}
-
-function normalizeBase64ImageData(imageData: string): string {
-  const dataUrlMatch = imageData.match(/^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/);
-  return dataUrlMatch?.[1] ?? imageData;
 }
 
 function cloneTemplate(template: PromptTemplate): PromptTemplate {
@@ -617,242 +541,45 @@ function upsertCachedTemplate(
   return [cloneTemplate(nextTemplate), ...existingTemplates.filter((template) => template.id !== nextTemplate.id)];
 }
 
-async function getAnthropicApiKey(): Promise<string> {
-  return getVaultApiKey(CLAUDE_VAULT_SECRET_KEY, 'Anthropic');
-}
-
-function buildClaudeApiRequestBody(
-  message: ClaudeVisionRuntimeRequest,
-): ClaudeApiRequestBody {
-  return {
-    model: CLAUDE_VISION_MODEL,
-    max_tokens: message.payload.maxTokens ?? 800,
-    temperature: message.payload.temperature ?? 0,
-    system: message.payload.systemPrompt,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: message.payload.mimeType ?? 'image/png',
-              data: normalizeBase64ImageData(message.payload.imageData),
-            },
-          },
-          {
-            type: 'text',
-            text: message.payload.userPrompt,
-          },
-        ],
-      },
-    ],
-  };
-}
-
-function buildOpenAiChatRequestBody(payload: ApiPayload): OpenAiChatCompletionRequestBody {
-  const userContent: OpenAiUserMessageContent = payload.imageData
-    ? [
-        {
-          type: 'text',
-          text: payload.prompt,
-        },
-        {
-          type: 'image_url',
-          image_url: {
-            url: normalizeInlineImage(payload.imageData).dataUrl,
-          },
-        },
-      ]
-    : payload.prompt;
-
-  return {
-    model: OPENAI_EXECUTION_MODEL,
-    messages: [
-      ...(payload.systemPrompt
-        ? [
-            {
-              role: 'system' as const,
-              content: payload.systemPrompt,
-            },
-          ]
-        : []),
-      {
-        role: 'user',
-        content: userContent,
-      },
-    ],
-    max_completion_tokens: payload.maxTokens,
-    ...(typeof payload.temperature === 'number' ? { temperature: payload.temperature } : {}),
-  };
-}
-
-function buildClaudeExecutionRequestBody(payload: ApiPayload): ClaudeApiRequestBody {
-  return {
-    model: CLAUDE_EXECUTION_MODEL,
-    max_tokens: payload.maxTokens,
-    temperature: payload.temperature ?? 0,
-    system: payload.systemPrompt ?? '',
-    messages: [
-      {
-        role: 'user',
-        content: payload.imageData
-          ? [
-              {
-                type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: normalizeInlineImage(payload.imageData).mimeType,
-                  data: normalizeInlineImage(payload.imageData).base64Data,
-                },
-              },
-              {
-                type: 'text',
-                text: payload.prompt,
-              },
-            ]
-          : [
-              {
-                type: 'text',
-                text: payload.prompt,
-              },
-            ],
-      },
-    ],
-  };
-}
-
-function extractOpenAiText(responseBody: OpenAiChatCompletionResponseBody): string {
-  const messageContent = responseBody.choices?.[0]?.message?.content;
-
-  if (typeof messageContent === 'string' && messageContent.trim()) {
-    return messageContent.trim();
-  }
-
-  if (Array.isArray(messageContent)) {
-    const textContent = messageContent
-      .map((part) => (typeof part.text === 'string' ? part.text.trim() : ''))
-      .filter(Boolean)
-      .join('\n');
-
-    if (textContent) {
-      return textContent;
-    }
-  }
-
-  throw new ServiceWorkerApiError(502, 'OpenAI returned no assistant text content.');
-}
-
-function extractClaudeTextContent(responseBody: ClaudeApiResponseBody): string {
-  const contentBlocks = responseBody.content ?? [];
-  const textContent = contentBlocks
-    .filter(
-      (block): block is ClaudeApiTextBlock =>
-        block.type === 'text' && typeof block.text === 'string',
-    )
-    .map((block) => block.text.trim())
-    .filter(Boolean)
-    .join('\n');
-
-  if (!textContent) {
-    throw new Error('Claude Vision returned no text content.');
-  }
-
-  return textContent;
-}
-
 async function proxyClaudeVisionRequest(
   message: ClaudeVisionRuntimeRequest,
 ): Promise<ClaudeVisionRuntimeSuccessResponse> {
-  const apiKey = await getAnthropicApiKey();
-  const response = await fetch(CLAUDE_API_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'anthropic-version': CLAUDE_API_VERSION,
-      'x-api-key': apiKey,
+  const response = await executeGeminiPayload(
+    {
+      model: ModelTarget.GEMINI,
+      prompt: message.payload.userPrompt,
+      systemPrompt: message.payload.systemPrompt,
+      imageData: message.payload.imageData,
+      maxTokens: message.payload.maxTokens ?? 800,
+      temperature: message.payload.temperature ?? 0,
     },
-    body: JSON.stringify(buildClaudeApiRequestBody(message)),
-  });
-
-  const responseBody = (await response.json()) as ClaudeApiResponseBody;
-
-  if (!response.ok) {
-    throw new Error(
-      responseBody.error?.message ??
-        `Claude Vision request failed with status ${response.status}.`,
-    );
-  }
+    {
+      includeImageData: true,
+      operationLabel: 'Gemini vision bridge execution',
+    },
+  );
 
   return {
     ok: true,
-    content: extractClaudeTextContent(responseBody),
-    model: responseBody.model ?? CLAUDE_VISION_MODEL,
-    stopReason: responseBody.stop_reason ?? null,
+    content: response.text,
+    model: response.model,
+    stopReason: null,
   };
 }
 
 /**
- * Executes a normalized LLM payload against the provider mapped from the target model and returns normalized text.
+ * Executes a normalized LLM payload against a single provider and returns normalized text.
  */
-export async function executeApiPayload(
+async function executeApiPayloadForSingleProvider(
   payload: ApiPayload,
 ): Promise<{ text: string; executionTimeMs: number }> {
   const startTime = Date.now();
 
   try {
     switch (payload.model) {
-      case ModelTarget.GROQ: {
-        const response = await executeGeminiPayload(payload, {
-          includeImageData: false,
-          operationLabel: 'Groq-compatible Gemini execution',
-        });
-        const executionTimeMs = Date.now() - startTime;
-        console.info(
-          `[PromptBridge][LLM] Groq-compatible Gemini completed in ${executionTimeMs}ms using key slot ${response.keySlot}.`,
-        );
-        return { text: response.text, executionTimeMs };
-      }
-      case ModelTarget.GPT4O: {
-        const apiKey = await getVaultApiKey(OPENAI_VAULT_SECRET_KEY, 'OpenAI');
-        const responseBody = await performJsonRequestWithBackoff<OpenAiChatCompletionResponseBody>(
-          'OpenAI',
-          OPENAI_CHAT_COMPLETIONS_ENDPOINT,
-          {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify(buildOpenAiChatRequestBody(payload)),
-          },
-        );
-        const executionTimeMs = Date.now() - startTime;
-        const text = extractOpenAiText(responseBody);
-        console.info(`[PromptBridge][LLM] OpenAI completed in ${executionTimeMs}ms.`);
-        return { text, executionTimeMs };
-      }
-      case ModelTarget.CLAUDE: {
-        const apiKey = await getVaultApiKey(CLAUDE_VAULT_SECRET_KEY, 'Anthropic');
-        const responseBody = await performJsonRequestWithBackoff<ClaudeApiResponseBody>(
-          'Anthropic',
-          CLAUDE_API_ENDPOINT,
-          {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              'anthropic-version': CLAUDE_API_VERSION,
-              'x-api-key': apiKey,
-            },
-            body: JSON.stringify(buildClaudeExecutionRequestBody(payload)),
-          },
-        );
-        const executionTimeMs = Date.now() - startTime;
-        const text = extractClaudeTextContent(responseBody);
-        console.info(`[PromptBridge][LLM] Anthropic completed in ${executionTimeMs}ms.`);
-        return { text, executionTimeMs };
-      }
+      case ModelTarget.GROQ:
+      case ModelTarget.GPT4O:
+      case ModelTarget.CLAUDE:
       case ModelTarget.GEMINI: {
         const response = await executeGeminiPayload(payload, {
           includeImageData: true,
@@ -860,22 +587,58 @@ export async function executeApiPayload(
         });
         const executionTimeMs = Date.now() - startTime;
         console.info(
-          `[PromptBridge][LLM] Gemini completed in ${executionTimeMs}ms using key slot ${response.keySlot}.`,
+          `[PromptBridge][LLM] Gemini completed in ${executionTimeMs}ms using the configured Gemini API key.`,
         );
         return { text: response.text, executionTimeMs };
       }
       case ModelTarget.LLAMA:
-      case ModelTarget.CUSTOM:
-        throw new ServiceWorkerApiError(
-          400,
-          `PromptBridge does not have a direct external API mapping for ${payload.model}. Choose GROQ, GPT4O, CLAUDE, or GEMINI for execution.`,
+      case ModelTarget.CUSTOM: {
+        const response = await executeGeminiPayload(
+          {
+            ...payload,
+            model: ModelTarget.GEMINI,
+          },
+          {
+            includeImageData: true,
+            operationLabel: 'Gemini execution',
+          },
         );
+        const executionTimeMs = Date.now() - startTime;
+        console.info(
+          `[PromptBridge][LLM] Gemini completed in ${executionTimeMs}ms using the configured Gemini API key.`,
+        );
+        return { text: response.text, executionTimeMs };
+      }
+      case ModelTarget.OLLAMA: {
+        const appSettings = await loadAppSettings().catch(() => DEFAULT_APP_SETTINGS);
+        const response = await callLlm(
+          payload,
+          createOllamaProviderConfig(appSettings.ollamaBaseUrl ?? DEFAULT_APP_SETTINGS.ollamaBaseUrl),
+        );
+
+        console.info(
+          `[PromptBridge][LLM] Ollama completed in ${response.executionTimeMs}ms using ${appSettings.ollamaBaseUrl ?? DEFAULT_APP_SETTINGS.ollamaBaseUrl}.`,
+        );
+
+        return {
+          text: response.text,
+          executionTimeMs: response.executionTimeMs,
+        };
+      }
       default: {
         const unreachableModel: never = payload.model;
         return unreachableModel;
       }
     }
   } catch (error) {
+    if (error instanceof LlmClientError) {
+      throw new ServiceWorkerApiError(
+        error.status,
+        buildProviderErrorMessage('Ollama', error.status, error.message),
+        error.cause ?? error,
+      );
+    }
+
     if (error instanceof ServiceWorkerApiError || error instanceof GeminiRotationError) {
       throw error;
     }
@@ -890,6 +653,49 @@ export async function executeApiPayload(
       error,
     );
   }
+}
+
+/**
+ * Executes a normalized LLM payload against the selected provider and automatically fails over to
+ * another configured provider when the first choice is unavailable, rate-limited, or misconfigured.
+ */
+export async function executeApiPayload(
+  payload: ApiPayload,
+): Promise<{ text: string; executionTimeMs: number }> {
+  const providerOrder = getProviderFailoverOrder(payload.model);
+  let lastError: unknown = null;
+
+  for (let index = 0; index < providerOrder.length; index += 1) {
+    const providerModel = providerOrder[index];
+    const providerPayload = buildProviderAttemptPayload(payload, providerModel);
+
+    try {
+      return await executeApiPayloadForSingleProvider(providerPayload);
+    } catch (error) {
+      lastError = error;
+
+      if (index === providerOrder.length - 1 || !shouldFailOverToAnotherProvider(error)) {
+        throw error;
+      }
+
+      const currentProviderLabel = getProviderLabelForModel(providerModel);
+      const nextProviderLabel = getProviderLabelForModel(providerOrder[index + 1]);
+
+      console.warn(
+        `[PromptBridge][LLM] ${currentProviderLabel} failed (${getErrorMessage(error)}). Falling back to ${nextProviderLabel}.`,
+      );
+    }
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+
+  throw new ServiceWorkerApiError(
+    503,
+    'PromptBridge could not find a working provider for this request.',
+    lastError,
+  );
 }
 
 async function loadTemplatesFromTemplateService(
@@ -1071,6 +877,8 @@ function buildHistoryEntry(result: PipelineResult): HistoryEntry {
     rating: null,
     enrichedPrompt: result.enrichedPrompt,
     response: result.processedResponse,
+    model: result.model ?? ModelTarget.GEMINI,
+    matchZone: result.matchZone,
   };
 }
 
@@ -1094,7 +902,7 @@ export async function handleRuntimeRequest(
     case 'PING':
       return {
         ok: true,
-        version: chrome.runtime.getManifest().version,
+        version: browser.runtime.getManifest().version,
         timestamp: new Date().toISOString(),
       };
     case 'OPEN_OPTIONS':
@@ -1144,39 +952,19 @@ export async function handleRuntimeRequest(
   }
 }
 
-chrome.runtime.onInstalled.addListener(() => {
+browser.runtime.onInstalled.addListener(() => {
   void bootstrapExtension();
 });
 
-chrome.runtime.onStartup.addListener(() => {
+browser.runtime.onStartup.addListener(() => {
   void bootstrapExtension();
 });
 
 void bootstrapExtension();
 
-chrome.runtime.onMessage.addListener((message: RuntimeRequest, sender, sendResponse) => {
-  if (sender.tab && isRestrictedContentScriptRequest(message)) {
-    sendResponse({
-      ok: false,
-      error:
-        'PromptBridge blocks direct Groq and vision bridge calls from content scripts. Route them through extension pages instead.',
-      code: 403,
-    } satisfies ExecuteLlmErrorResponse);
-    return false;
-  }
-
-  void (async () => {
-    try {
-      const response = await handleRuntimeRequest(message);
-      sendResponse(response);
-    } catch (error) {
-      sendResponse({
-        ok: false,
-        error: getErrorMessage(error),
-        ...(typeof getErrorCode(error) === 'number' ? { code: getErrorCode(error) } : {}),
-      } satisfies ErrorResponse);
-    }
-  })();
-
-  return true;
+registerMessageRouter({
+  handleRuntimeRequest,
+  isRestrictedContentScriptRequest,
+  getErrorMessage,
+  getErrorCode,
 });

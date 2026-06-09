@@ -15,10 +15,12 @@ import { promoteAbWinnerTemplate, selectAbTemplates } from './abTesting';
 import type { AbTesterVariant } from './components/ABTester';
 import Header from './components/Header';
 import MainPanel from './components/MainPanel';
+import Onboarding from './components/Onboarding';
 import {
   POPUP_MODEL_OPTIONS,
   POPUP_TEXT,
   getModelDisplayLabel,
+  getPopupErrorMessage,
 } from './constants';
 import {
   applyThemePreference,
@@ -64,7 +66,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
 }
 
 function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : POPUP_TEXT.statusBar.errorMessage;
+  return getPopupErrorMessage(error);
 }
 
 interface AbComparisonVariantState extends AbTesterVariant {
@@ -485,75 +487,86 @@ export default function App(): JSX.Element {
         resolvedTheme={resolvedTheme}
       />
 
-      <MainPanel
-        abComparisonVariants={abComparisonVariants}
-        isSubmitting={isSubmitting}
-        isWinnerSelectionPending={isWinnerSelectionPending}
-        onAttachImage={(file) => {
-          void handleAttachImage(file);
-        }}
-        onCancelCommandGate={() => {
-          setPopupPendingInteraction(null);
-          executor.resumeWithAnswer('no');
-        }}
-        onChooseAbWinner={(historyEntryId) => {
-          void handleChooseAbWinner(historyEntryId);
-        }}
-        onConfirmCommandGate={() => {
-          setPopupPendingInteraction(null);
-          executor.resumeWithAnswer('yes');
-        }}
-        onOpenOptions={() => {
-          void chrome.runtime.openOptionsPage();
-        }}
-        onRemoveImage={() => {
-          setPopupImageAttachment(null);
-        }}
-        onScopeSelection={(option) => {
-          setPopupPendingInteraction(null);
-          executor.resumeWithAnswer(option);
-        }}
-        selectedWinnerHistoryEntryId={selectedWinnerHistoryEntryId}
-        onSubmit={() => {
-          void runPipeline();
-        }}
-        onSubmitEnhancedClarification={() => {
-          const interaction = usePromptBridgeStore.getState().popupPendingInteraction;
+      {settings.onboardingComplete === true ? (
+        <MainPanel
+          abComparisonVariants={abComparisonVariants}
+          isSubmitting={isSubmitting}
+          isWinnerSelectionPending={isWinnerSelectionPending}
+          onAttachImage={(file) => {
+            void handleAttachImage(file);
+          }}
+          onCancelCommandGate={() => {
+            setPopupPendingInteraction(null);
+            executor.resumeWithAnswer('no');
+          }}
+          onChooseAbWinner={(historyEntryId) => {
+            void handleChooseAbWinner(historyEntryId);
+          }}
+          onConfirmCommandGate={() => {
+            setPopupPendingInteraction(null);
+            executor.resumeWithAnswer('yes');
+          }}
+          onOpenOptions={() => {
+            void chrome.runtime.openOptionsPage();
+          }}
+          onRemoveImage={() => {
+            setPopupImageAttachment(null);
+          }}
+          onScopeSelection={(option) => {
+            setPopupPendingInteraction(null);
+            executor.resumeWithAnswer(option);
+          }}
+          selectedWinnerHistoryEntryId={selectedWinnerHistoryEntryId}
+          onSubmit={() => {
+            void runPipeline();
+          }}
+          onSubmitEnhancedClarification={() => {
+            const interaction = usePromptBridgeStore.getState().popupPendingInteraction;
 
-          if (!interaction || interaction.kind !== 'clarificationSet') {
-            return;
-          }
+            if (!interaction || interaction.kind !== 'clarificationSet') {
+              return;
+            }
 
-          setPopupPendingInteraction(null);
-          executor.resumeWithClarificationSet(
-            interaction.responses.map((response) => ({
-              ...response,
-              answer: response.answer.trim(),
-              usedDefault: response.answer.trim().length === 0,
-            })),
-          );
-        }}
-        onSubmitMicroQuestion={() => {
-          const interaction = usePromptBridgeStore.getState().popupPendingInteraction;
+            setPopupPendingInteraction(null);
+            executor.resumeWithClarificationSet(
+              interaction.responses.map((response) => ({
+                ...response,
+                answer: response.answer.trim(),
+                usedDefault: response.answer.trim().length === 0,
+              })),
+            );
+          }}
+          onSubmitMicroQuestion={() => {
+            const interaction = usePromptBridgeStore.getState().popupPendingInteraction;
 
-          if (!interaction || interaction.kind !== 'question') {
-            return;
-          }
+            if (!interaction || interaction.kind !== 'question') {
+              return;
+            }
 
-          setPopupPendingInteraction(null);
-          executor.resumeWithAnswer(interaction.answer);
-        }}
-        onToggleAbMode={(enabled) => {
-          void updateSettings({
-            abModeEnabled: enabled,
-          });
-        }}
-        onToggleEnhancedMode={(enabled) => {
-          void updateSettings({
-            enhancedModeEnabled: enabled,
-          });
-        }}
-      />
+            setPopupPendingInteraction(null);
+            executor.resumeWithAnswer(interaction.answer);
+          }}
+          onToggleAbMode={(enabled) => {
+            void updateSettings({
+              abModeEnabled: enabled,
+            });
+          }}
+          onToggleEnhancedMode={(enabled) => {
+            void updateSettings({
+              enhancedModeEnabled: enabled,
+            });
+          }}
+        />
+      ) : (
+        <Onboarding
+          onComplete={async () => {
+            await saveSettingsToStorage({
+              ...settings,
+              onboardingComplete: true,
+            });
+          }}
+        />
+      )}
     </main>
   );
 }

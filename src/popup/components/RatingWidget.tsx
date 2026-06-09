@@ -3,7 +3,12 @@ import { adjustWeights } from '../../pipeline/layer1/templateMatcher';
 import { usePromptBridgeStore } from '../../store';
 import { RatingValue } from '../../types';
 import type { IntentType } from '../../types';
-import { POPUP_TEXT, formatRatingCount, formatSavedRatingMessage } from '../constants';
+import {
+  POPUP_TEXT,
+  formatRatingCount,
+  formatSavedRatingMessage,
+  getPopupErrorMessage,
+} from '../constants';
 import { sendRuntimeMessage } from '../runtime';
 
 export interface RatingWidgetProps {
@@ -42,7 +47,7 @@ function ThumbsDownIcon(): JSX.Element {
 }
 
 function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : POPUP_TEXT.rating.defaultMessage;
+  return getPopupErrorMessage(error);
 }
 
 export default function RatingWidget({

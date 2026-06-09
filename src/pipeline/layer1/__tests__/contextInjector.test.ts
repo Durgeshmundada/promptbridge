@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { IntentType } from '../../../types';
 import type { Persona, PromptTemplate } from '../../../types';
 import { injectContext } from '../contextInjector';

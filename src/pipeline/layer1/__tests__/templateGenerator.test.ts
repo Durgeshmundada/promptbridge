@@ -1,11 +1,14 @@
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type MockedFunction } from 'vitest';
 import type * as ExecutionEngineModule from '../../layer6/executionEngine';
 
-jest.mock('../../layer6/executionEngine', () => {
-  const actual = jest.requireActual('../../layer6/executionEngine') as typeof ExecutionEngineModule;
+vi.mock('../../layer6/executionEngine', async () => {
+  const actual = await vi.importActual<typeof ExecutionEngineModule>(
+    '../../layer6/executionEngine',
+  );
 
   return {
     ...actual,
-    execute: jest.fn(),
+    execute: vi.fn(),
   };
 });
 
@@ -24,7 +27,7 @@ import {
 import { getMatchZone } from '../templateMatcher';
 import { execute } from '../../layer6/executionEngine';
 
-const executeMock = execute as jest.MockedFunction<typeof execute>;
+const executeMock = execute as MockedFunction<typeof execute>;
 const GENERATED_TEMPLATES_STORAGE_KEY = 'pb_templates_generated';
 
 type StorageMap = Record<string, unknown>;
@@ -152,7 +155,7 @@ describe('templateGenerator', () => {
   });
 
   beforeEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
     storageControls = installMockChrome();
     executeMock.mockReset();
   });
@@ -184,15 +187,17 @@ describe('templateGenerator', () => {
     expect(validateTemplate(createValidTemplate())).toBe(true);
   });
 
-  it('getMatchZone returns DIRECT for scores at or above 0.80', () => {
+  it('getMatchZone returns DIRECT only for scores at or above 0.90', () => {
     expect(getMatchZone(0.9)).toBe('DIRECT');
   });
 
-  it('getMatchZone returns PARTIAL for scores between 0.50 and 0.79', () => {
-    expect(getMatchZone(0.65)).toBe('PARTIAL');
+  it('getMatchZone returns PARTIAL for scores from 0.70 up to 0.90', () => {
+    expect(getMatchZone(0.89)).toBe('PARTIAL');
+    expect(getMatchZone(0.7)).toBe('PARTIAL');
   });
 
-  it('getMatchZone returns GENERATE for scores below 0.50', () => {
+  it('getMatchZone keeps scores below 0.70 in GENERATE', () => {
+    expect(getMatchZone(0.69)).toBe('GENERATE');
     expect(getMatchZone(0.3)).toBe('GENERATE');
   });
 
@@ -222,6 +227,70 @@ describe('templateGenerator', () => {
     expect(result.id).toBe('generated-release-notes');
     expect(result.description).toContain('release notes');
     expect(storedTemplates.map((template) => template.id)).toContain('generated-release-notes');
+  });
+
+  it('executor adapts the closest template when the best match is between 0.70 and 0.90', async () => {
+    const templateMatcherModule = await import('../templateMatcher');
+    const { default: PipelineExecutor } = await import('../../PipelineExecutor');
+    const fallbackTemplate = createValidTemplate({
+      id: 'fallback-general-template',
+      description: 'Reusable fallback template for partly matched product communication requests.',
+      template:
+        'Write {{content_type}} for {{product}} about {{topic}} with {{constraints}} and {{output_format}}.',
+      tags: ['product', 'communication'],
+    });
+
+    vi.spyOn(templateMatcherModule, 'getAllTemplates').mockResolvedValue([fallbackTemplate]);
+    vi.spyOn(templateMatcherModule, 'getTopMatch').mockReturnValue({
+      zone: 'PARTIAL',
+      template: fallbackTemplate,
+      score: 0.78,
+      isNewTemplate: false,
+    });
+    executeMock
+      .mockResolvedValueOnce({
+        response: JSON.stringify({
+          id: 'ignored-adapted-template-id',
+          intentType: IntentType.GENERAL,
+          description: 'Reusable adapted release notes template for product updates.',
+          template:
+            'Write {{content_type}} for {{product}} covering {{changes}}, {{impact}}, {{constraints}}, and {{output_format}}.',
+          tags: ['adapted', 'release-notes'],
+          weight: 1,
+        }),
+        executionTimeMs: 85,
+      })
+      .mockResolvedValueOnce({
+        response: 'Generated template answer. [LIKELY]',
+        executionTimeMs: 120,
+      });
+
+    const executor = new PipelineExecutor(
+      {
+        activePersonaId: 'default-persona',
+        targetModel: ModelTarget.GPT4O,
+        sessionMemoryDepth: 8,
+        vaultTimeoutMinutes: 20,
+        theme: 'system',
+        abModeEnabled: false,
+        enhancedModeEnabled: false,
+      },
+      {
+        ensureReady: vi.fn().mockResolvedValue(undefined),
+      },
+    );
+
+    const result = await executor.execute({
+      rawInput: 'Write release notes for the payments dashboard launch.',
+      targetModel: ModelTarget.GPT4O,
+      sessionId: 'strict-threshold-session',
+    });
+
+    expect(result.matchZone).toBe('PARTIAL');
+    expect(result.isNewTemplate).toBe(true);
+    expect(result.template.id).toMatch(/^adapted-/);
+    expect(result.template.template).toContain('{{changes}}');
+    expect(executeMock).toHaveBeenCalledTimes(2);
   });
 
   it('adaptTemplate returns a modified template from a mocked LLM response', async () => {
@@ -260,16 +329,16 @@ describe('templateGenerator', () => {
     expect(result.template).toContain('{{output_format}}');
   });
 
-  it('falls back to the closest existing template when template generation returns invalid JSON', async () => {
+  it('falls back to a one-off API-optimized prompt when reusable template generation returns invalid JSON', async () => {
     const templateMatcherModule = await import('../templateMatcher');
     const { default: PipelineExecutor } = await import('../../PipelineExecutor');
 
-    jest.spyOn(templateMatcherModule, 'getAllTemplates').mockResolvedValue([
+    vi.spyOn(templateMatcherModule, 'getAllTemplates').mockResolvedValue([
       createValidTemplate({
         id: 'fallback-general-template',
       }),
     ]);
-    jest.spyOn(templateMatcherModule, 'getTopMatch').mockReturnValue({
+    vi.spyOn(templateMatcherModule, 'getTopMatch').mockReturnValue({
       zone: 'GENERATE',
       template: createValidTemplate({
         id: 'fallback-general-template',
@@ -277,14 +346,19 @@ describe('templateGenerator', () => {
       score: 0.32,
       isNewTemplate: false,
     });
-    jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     executeMock
       .mockResolvedValueOnce({
         response: 'This is not valid JSON at all.',
         executionTimeMs: 90,
       })
       .mockResolvedValueOnce({
-        response: 'Fallback template answer. [LIKELY]',
+        response:
+          'Answer the user directly about orbital salvage financing. Include risk allocation, compliance clauses, negotiation points, and practical caveats.',
+        executionTimeMs: 105,
+      })
+      .mockResolvedValueOnce({
+        response: 'Optimized prompt answer. [LIKELY]',
         executionTimeMs: 140,
       });
 
@@ -299,7 +373,7 @@ describe('templateGenerator', () => {
         enhancedModeEnabled: false,
       },
       {
-        ensureReady: jest.fn().mockResolvedValue(undefined),
+        ensureReady: vi.fn().mockResolvedValue(undefined),
       },
     );
 
@@ -310,10 +384,11 @@ describe('templateGenerator', () => {
       sessionId: 'template-fallback-session',
     });
 
-    expect(result.template.id).toBe('fallback-general-template');
-    expect(result.matchZone).toBe('DIRECT');
-    expect(result.matchBadge).toBe('Template matched directly');
-    expect(executeMock).toHaveBeenCalledTimes(2);
+    expect(result.template.id.startsWith('api-optimized-')).toBe(true);
+    expect(result.matchZone).toBe('GENERATE');
+    expect(result.matchBadge).toBe('Optimized prompt generated via API');
+    expect(result.enrichedPrompt).toContain('orbital salvage financing');
+    expect(executeMock).toHaveBeenCalledTimes(3);
   });
 
   it('caps the generated template database at 500 entries by removing the lowest-weight templates first', async () => {

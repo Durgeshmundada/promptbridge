@@ -1,3 +1,4 @@
+import { describe, expect, it, vi, type Mock } from 'vitest';
 import type { GroqBridgeError } from '../groq';
 import {
   GroqBridgeErrorCode,
@@ -5,8 +6,8 @@ import {
   sendGroqChatCompletion,
 } from '../groq';
 
-function installRuntimeMock(responseFactory: () => unknown): jest.Mock {
-  const sendMessageMock = jest.fn(
+function installRuntimeMock(responseFactory: () => unknown): Mock {
+  const sendMessageMock = vi.fn(
     (_message: unknown, callback: (response: unknown) => void): void => {
       callback(responseFactory());
     },

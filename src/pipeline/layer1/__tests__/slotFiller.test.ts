@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { fillTemplateSlots } from '../slotFiller';
 
 describe('slotFiller', () => {
@@ -32,7 +33,20 @@ describe('slotFiller', () => {
     );
 
     expect(result.filledTemplate).toContain('Please help me organize the request clearly.');
-    expect(result.filledTemplate).toContain('Preserve the user intent');
-    expect(result.filledTemplate).not.toContain('{{');
+    expect(result.filledTemplate).toContain('{{constraints}}');
+    expect(result.filledTemplate).toContain('{{output_format}}');
+    expect(result.filledTemplate).not.toContain('{{task}}');
+  });
+
+  it('derives a cleaner conceptual topic and leaves persona-managed slots unresolved', () => {
+    const result = fillTemplateSlots(
+      'Explain pipelining.',
+      'Persona: {{persona_context}}\nTopic: {{topic}}\nLanguage: {{language}}\nDomain: {{domain_context}}',
+    );
+
+    expect(result.filledTemplate).toContain('Topic: pipelining');
+    expect(result.filledTemplate).toContain('Language: not specified; use pseudocode only if it helps');
+    expect(result.filledTemplate).toContain('{{persona_context}}');
+    expect(result.filledTemplate).toContain('{{domain_context}}');
   });
 });

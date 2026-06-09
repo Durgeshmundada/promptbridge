@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { ImageType } from '../../../types';
 import type { Layer4Error } from '../claudeVisionBridge';
 import { Layer4ErrorCode } from '../claudeVisionBridge';

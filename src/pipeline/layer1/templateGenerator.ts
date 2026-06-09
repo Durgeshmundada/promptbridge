@@ -1,5 +1,5 @@
-import { IntentType } from '../../types';
-import type { ModelTarget, PromptTemplate } from '../../types';
+import { IntentType, ModelTarget } from '../../types';
+import type { PromptTemplate } from '../../types';
 import { saveTemplateToRuntime } from '../../utils/templateServiceRuntime';
 import { execute } from '../layer6/executionEngine';
 import { getFromLocal, saveToLocal } from '../../utils/storage';
@@ -25,10 +25,28 @@ const MAX_GENERATED_TEMPLATE_COUNT = 500;
 const MAX_FAILURE_LOG_COUNT = 50;
 const TEMPLATE_REQUEST_MAX_TOKENS = 500;
 const TEMPLATE_REQUEST_TEMPERATURE = 0.3;
+const PROMPT_OPTIMIZATION_MAX_TOKENS = 700;
+const PROMPT_OPTIMIZATION_TEMPERATURE = 0.2;
 const TEMPLATE_REQUEST_SYSTEM_PROMPT =
   'You are PromptBridge template generation engine. Return only valid JSON with double-quoted keys and values where required. Do not wrap the JSON in markdown.';
+const PROMPT_OPTIMIZATION_SYSTEM_PROMPT =
+  'You are PromptBridge prompt optimization engine. Return only the optimized prompt text. Do not return JSON. Do not wrap the response in markdown fences.';
 
-function createTemplateId(prefix: 'adapted' | 'generated'): string {
+function resolveInternalGenerationModel(model: ModelTarget): ModelTarget {
+  switch (model) {
+    case ModelTarget.GEMINI:
+      return ModelTarget.GEMINI;
+    case ModelTarget.GROQ:
+    case ModelTarget.GPT4O:
+    case ModelTarget.CLAUDE:
+    case ModelTarget.LLAMA:
+    case ModelTarget.CUSTOM:
+    default:
+      return ModelTarget.GEMINI;
+  }
+}
+
+function createTemplateId(prefix: 'adapted' | 'generated' | 'api-optimized'): string {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
     return `${prefix}-${globalThis.crypto.randomUUID()}`;
   }
@@ -181,6 +199,40 @@ function buildGeneratePrompt(
   ].join('\n');
 }
 
+function buildOptimizePrompt(
+  userInput: string,
+  intent: IntentType,
+  sessionContext: string,
+): string {
+  return [
+    'Rewrite the following user request into a stronger prompt that can be sent directly to an LLM.',
+    `User request: ${userInput}`,
+    `Detected intent: ${intent}`,
+    '',
+    buildSessionContextBlock(sessionContext),
+    '',
+    'Requirements:',
+    '- Return only the optimized prompt text',
+    '- Keep the user goal intact',
+    '- Add structure, specificity, and constraints only when justified by the request',
+    '- Do not mention PromptBridge',
+    '- Do not ask follow-up questions inside the optimized prompt',
+    '- If information is missing, instruct the model to state assumptions briefly',
+    '- Keep the prompt concise but actionable',
+  ].join('\n');
+}
+
+function normalizeOptimizedPrompt(rawResponse: string): string {
+  const trimmedResponse = rawResponse.trim();
+
+  if (!trimmedResponse) {
+    return '';
+  }
+
+  const fencedMatch = trimmedResponse.match(/^```(?:[\w-]+)?\s*([\s\S]*?)\s*```$/);
+  return (fencedMatch?.[1] ?? trimmedResponse).trim();
+}
+
 /**
  * Validates whether a generated or adapted prompt template is safe to persist and reuse.
  */
@@ -237,8 +289,9 @@ export async function adaptTemplate(
   model: ModelTarget,
   sessionContext = '',
 ): Promise<PromptTemplate> {
+  const executionModel = resolveInternalGenerationModel(model);
   const response = await execute({
-    model,
+    model: executionModel,
     prompt: buildAdaptPrompt(baseTemplate, userInput, sessionContext),
     systemPrompt: TEMPLATE_REQUEST_SYSTEM_PROMPT,
     maxTokens: TEMPLATE_REQUEST_MAX_TOKENS,
@@ -282,8 +335,9 @@ export async function generateTemplate(
   model: ModelTarget,
   sessionContext = '',
 ): Promise<PromptTemplate> {
+  const executionModel = resolveInternalGenerationModel(model);
   const response = await execute({
-    model,
+    model: executionModel,
     prompt: buildGeneratePrompt(userInput, intent, sessionContext),
     systemPrompt: TEMPLATE_REQUEST_SYSTEM_PROMPT,
     maxTokens: TEMPLATE_REQUEST_MAX_TOKENS,
@@ -318,4 +372,44 @@ export async function generateTemplate(
 
   await saveTemplateToDatabase(generatedTemplate);
   return generatedTemplate;
+}
+
+/**
+ * Generates a one-off optimized prompt when no stored template is strong enough and reusable JSON
+ * template generation fails or is unnecessary.
+ */
+export async function generateOptimizedPromptTemplate(
+  userInput: string,
+  intent: IntentType,
+  model: ModelTarget,
+  sessionContext = '',
+): Promise<PromptTemplate> {
+  const executionModel = resolveInternalGenerationModel(model);
+  const response = await execute({
+    model: executionModel,
+    prompt: buildOptimizePrompt(userInput, intent, sessionContext),
+    systemPrompt: PROMPT_OPTIMIZATION_SYSTEM_PROMPT,
+    maxTokens: PROMPT_OPTIMIZATION_MAX_TOKENS,
+    temperature: PROMPT_OPTIMIZATION_TEMPERATURE,
+  });
+  const optimizedPrompt = normalizeOptimizedPrompt(response.response);
+
+  if (optimizedPrompt.length < 20) {
+    await logTemplateGenerationFailure(
+      'Optimized prompt generation returned content that was too short.',
+      response.response,
+    );
+    throw new Error('PromptBridge could not generate a usable optimized prompt.');
+  }
+
+  return {
+    id: createTemplateId('api-optimized'),
+    intentType: intent,
+    description:
+      'One-off API-optimized prompt created because no stored template met the high-confidence reuse threshold.',
+    template: optimizedPrompt,
+    tags: ['api-optimized', 'one-off', intent.toLowerCase()],
+    weight: 1,
+    source: 'generated',
+  };
 }

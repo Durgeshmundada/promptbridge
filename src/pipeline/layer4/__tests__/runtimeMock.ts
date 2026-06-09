@@ -1,5 +1,6 @@
-export function installRuntimeMock(responseFactory: () => unknown): jest.Mock {
-  const sendMessageMock = jest.fn(
+import { vi, type Mock } from 'vitest';
+export function installRuntimeMock(responseFactory: () => unknown): Mock {
+  const sendMessageMock = vi.fn(
     (_message: unknown, callback: (response: unknown) => void): void => {
       callback(responseFactory());
     },

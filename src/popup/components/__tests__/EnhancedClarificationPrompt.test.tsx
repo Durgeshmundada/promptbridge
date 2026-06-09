@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import EnhancedClarificationPrompt from '../EnhancedClarificationPrompt';
 import { usePromptBridgeStore } from '../../../store';
@@ -60,7 +61,7 @@ describe('EnhancedClarificationPrompt', () => {
       });
     });
 
-    const onSubmit = jest.fn();
+    const onSubmit = vi.fn();
     render(<EnhancedClarificationPrompt onSubmit={onSubmit} />);
 
     expect(screen.getByText('Enhanced Mode')).toBeTruthy();

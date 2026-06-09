@@ -1,11 +1,14 @@
+import { beforeEach, describe, expect, it, vi, type MockedFunction } from 'vitest';
 import type * as ExecutionEngineModule from '../../layer6/executionEngine';
 
-jest.mock('../../layer6/executionEngine', () => {
-  const actual = jest.requireActual('../../layer6/executionEngine') as typeof ExecutionEngineModule;
+vi.mock('../../layer6/executionEngine', async () => {
+  const actual = await vi.importActual<typeof ExecutionEngineModule>(
+    '../../layer6/executionEngine',
+  );
 
   return {
     ...actual,
-    execute: jest.fn(),
+    execute: vi.fn(),
   };
 });
 
@@ -14,7 +17,7 @@ import { IntentType, ModelTarget, GapSeverity } from '../../../types';
 import { execute } from '../../layer6/executionEngine';
 import { generateEnhancedClarificationSet } from '../enhancedClarificationEngine';
 
-const executeMock = execute as jest.MockedFunction<typeof execute>;
+const executeMock = execute as MockedFunction<typeof execute>;
 
 function createInput(overrides: Partial<EnhancedClarificationInput> = {}): EnhancedClarificationInput {
   return {
@@ -34,7 +37,7 @@ function createInput(overrides: Partial<EnhancedClarificationInput> = {}): Enhan
 
 describe('enhancedClarificationEngine', () => {
   beforeEach(() => {
-    jest.resetAllMocks();
+    vi.resetAllMocks();
   });
 
   it('parses three model-generated clarification questions from JSON', async () => {

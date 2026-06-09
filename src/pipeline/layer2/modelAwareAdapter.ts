@@ -78,6 +78,7 @@ export function adaptPromptForModel(prompt: string, modelTarget: ModelTarget): s
     case ModelTarget.GEMINI:
       return adaptForGemini(prompt);
     case ModelTarget.LLAMA:
+    case ModelTarget.OLLAMA:
       return adaptForLlama(prompt);
     case ModelTarget.CUSTOM:
       return prompt;

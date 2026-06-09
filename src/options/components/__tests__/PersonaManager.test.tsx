@@ -1,3 +1,4 @@
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import PersonaManager from '../PersonaManager';
 import { usePromptBridgeStore } from '../../../store';
@@ -138,7 +139,7 @@ describe('PersonaManager', () => {
   });
 
   afterEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
     act(() => {
       usePromptBridgeStore.getState().resetState();
     });
@@ -201,16 +202,16 @@ describe('PersonaManager', () => {
 
     Object.defineProperty(globalThis.URL, 'createObjectURL', {
       configurable: true,
-      value: jest.fn((blob: Blob) => {
+      value: vi.fn((blob: Blob) => {
         exportedBlob = blob;
         return 'blob:promptbridge-personas';
       }),
     });
     Object.defineProperty(globalThis.URL, 'revokeObjectURL', {
       configurable: true,
-      value: jest.fn(),
+      value: vi.fn(),
     });
-    const clickSpy = jest
+    const clickSpy = vi
       .spyOn(HTMLAnchorElement.prototype, 'click')
       .mockImplementation(() => undefined);
 
@@ -255,7 +256,7 @@ describe('PersonaManager', () => {
 
     Object.defineProperty(importFile, 'text', {
       configurable: true,
-      value: jest.fn().mockResolvedValue(fileContents),
+      value: vi.fn().mockResolvedValue(fileContents),
     });
 
     Object.defineProperty(fileInput as HTMLInputElement, 'files', {

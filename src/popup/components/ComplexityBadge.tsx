@@ -37,7 +37,7 @@ export default function ComplexityBadge(): JSX.Element | null {
           ) : null}
           {typeof lastResult.matchScore === 'number' ? (
             <span className="rounded-full border border-[var(--pb-border)] px-3 py-1 text-xs font-semibold text-[var(--pb-text-soft)]">
-              {formatMatchScoreLabel(lastResult.matchScore)}
+              {formatMatchScoreLabel(lastResult.matchScore, lastResult.matchZone)}
             </span>
           ) : null}
         </div>

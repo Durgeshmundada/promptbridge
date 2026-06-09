@@ -5,6 +5,7 @@ import SettingsPanel from './components/SettingsPanel';
 import TemplateLibrary from './components/TemplateLibrary';
 import {
   OPTIONS_ACTIVE_TAB_STORAGE_KEY,
+  OPTIONS_DIRTY_STATE_EVENT,
   OPTIONS_TABS,
   isOptionsTabId,
   type OptionsTabId,
@@ -84,6 +85,7 @@ function App(): JSX.Element {
     'PromptBridge keeps templates, personas, and settings local to this browser profile.',
   );
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>('light');
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   useEffect(() => {
     const hydratePage = async (): Promise<void> => {
@@ -119,6 +121,40 @@ function App(): JSX.Element {
       applyThemePreference(settings.theme);
     });
   }, [settings.theme]);
+
+  useEffect(() => {
+    const handleDirtyStateChange = (event: Event): void => {
+      if (!(event instanceof CustomEvent)) {
+        return;
+      }
+
+      const detail = event.detail as { dirty?: boolean };
+      setHasUnsavedChanges(Boolean(detail.dirty));
+    };
+
+    window.addEventListener(OPTIONS_DIRTY_STATE_EVENT, handleDirtyStateChange);
+
+    return () => {
+      window.removeEventListener(OPTIONS_DIRTY_STATE_EVENT, handleDirtyStateChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent): void => {
+      if (!hasUnsavedChanges) {
+        return;
+      }
+
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [hasUnsavedChanges]);
 
   const activeTabDefinition = useMemo(
     () => OPTIONS_TABS.find((tab) => tab.id === activeTab) ?? OPTIONS_TABS[0],

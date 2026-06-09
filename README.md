@@ -7,9 +7,10 @@ This project currently supports:
 - React + TypeScript extension UI
 - Manifest V3 background service worker
 - MongoDB Atlas-backed template catalog through a local Node/Express service
-- 3-zone template matching: `DIRECT`, `PARTIAL`, and `GENERATE`
+- high-confidence template reuse: `DIRECT` at `0.90+`, otherwise API generation
+- Gemini-only execution and optimization through a single `GEMINI_API_KEY`
 - Enhanced Mode with dynamic 3-question clarification flow
-- session-aware template adaptation and generation
+- session-aware template retrieval context and API generation
 - persona, history, ratings, theme, and vault-backed API key flows
 
 ## Current Architecture
@@ -107,6 +108,12 @@ Used by the extension build, not by the local MongoDB service.
 
 Do not put `MONGODB_URI` in `.env.local`.
 
+Use:
+
+```env
+GEMINI_API_KEY="AIza..."
+```
+
 ## First-Time Setup
 
 ### 1. Install dependencies
@@ -156,12 +163,12 @@ dist/
 3. Click `Load unpacked`
 4. Select `d:\Hackbyte\promptbridge\dist`
 
-### 6. Add API keys
+### 6. Add API key
 
 1. Open the extension Options page
 2. Go to `Settings`
 3. Unlock the vault
-4. Save the required provider API keys
+4. Save your Gemini API key if you do not want to bundle `GEMINI_API_KEY` in `.env.local`
 
 ## Start After Laptop Restart
 
@@ -264,21 +271,19 @@ This importer:
 
 The import is safe to rerun because it uses upserts by template id.
 
-## 3-Zone Template Matching
+## High-Confidence Template Matching
 
-PromptBridge uses three template-resolution zones:
+PromptBridge now uses a strict reuse gate:
 
 - `DIRECT`
-  - score `>= 0.80`
+  - score `>= 0.90`
   - use the matched template directly
-- `PARTIAL`
-  - score `0.50 - 0.79`
-  - adapt the nearest template through the model
 - `GENERATE`
-  - score `< 0.50`
-  - generate a new reusable template
+  - score `< 0.90`
+  - first try to generate a new reusable template through Gemini
+  - if reusable template JSON generation fails, generate a one-off optimized prompt through Gemini instead
 
-Generated and adapted templates are validated before being saved.
+Generated templates are validated before being saved.
 
 ## Performance Notes
 
@@ -402,5 +407,5 @@ pnpm build
 
 - Keep MongoDB credentials in `.env.server.local`
 - Do not put MongoDB credentials in `.env.local`
-- Keep provider API keys in the PromptBridge vault when possible
-- All provider calls should flow through the background service worker
+- Keep your Gemini API key in the PromptBridge vault when possible
+- All Gemini calls should flow through the background service worker

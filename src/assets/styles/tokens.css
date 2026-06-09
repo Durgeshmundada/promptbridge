@@ -1,6 +1,21 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+@config '../../../tailwind.config.ts';
+
+@theme {
+  --color-bridge-ink: var(--pb-text);
+  --color-bridge-soft: var(--pb-text-soft);
+  --color-bridge-subtle: var(--pb-text-subtle);
+  --color-bridge-bg: var(--pb-bg);
+  --color-bridge-accent: var(--pb-accent);
+  --color-bridge-success: var(--pb-success);
+  --color-bridge-warning: var(--pb-warning);
+  --color-bridge-danger: var(--pb-danger);
+  --color-bridge-surface: var(--pb-surface);
+  --shadow-bridge: var(--pb-shadow);
+  --shadow-bridge-soft: var(--pb-shadow-soft);
+  --font-bridge-sans: var(--pb-font-sans);
+  --font-bridge-display: var(--pb-font-display);
+}
 
 :root {
   --pb-font-sans: 'Aptos', 'Trebuchet MS', 'Segoe UI', sans-serif;

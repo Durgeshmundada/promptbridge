@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect, it, vi, type MockedFunction } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import TemplateLibrary from '../TemplateLibrary';
 import { usePromptBridgeStore } from '../../../store';
@@ -5,13 +6,19 @@ import { IntentType } from '../../../types';
 import type { PromptTemplate } from '../../../types';
 import * as templateServiceRuntime from '../../../utils/templateServiceRuntime';
 
-jest.mock('../../../utils/templateServiceRuntime', () => ({
-  ...jest.requireActual('../../../utils/templateServiceRuntime'),
-  loadTemplateCatalogFromRuntime: jest.fn(),
-}));
+vi.mock('../../../utils/templateServiceRuntime', async () => {
+  const actual = await vi.importActual<typeof templateServiceRuntime>(
+    '../../../utils/templateServiceRuntime',
+  );
+
+  return {
+    ...actual,
+    loadTemplateCatalogFromRuntime: vi.fn(),
+  };
+});
 
 const loadTemplateCatalogFromRuntimeMock =
-  templateServiceRuntime.loadTemplateCatalogFromRuntime as jest.MockedFunction<
+  templateServiceRuntime.loadTemplateCatalogFromRuntime as MockedFunction<
     typeof templateServiceRuntime.loadTemplateCatalogFromRuntime
   >;
 
@@ -48,13 +55,13 @@ describe('TemplateLibrary', () => {
     });
   });
 
-  it('renders all 15 default templates in the library grid', () => {
+  it('renders all 16 default templates in the library grid', () => {
     const { container } = render(<TemplateLibrary />);
 
     expect(screen.getAllByText('coding-debug').length).toBeGreaterThan(0);
     expect(screen.getAllByText('step-by-step-explain').length).toBeGreaterThan(0);
     expect(screen.getAllByText('research-synthesis').length).toBeGreaterThan(0);
-    expect(container.querySelectorAll('article')).toHaveLength(15);
+    expect(container.querySelectorAll('article')).toHaveLength(16);
   });
 
   it('shows imported archive templates in the archive view without replacing the live library', async () => {
@@ -69,7 +76,7 @@ describe('TemplateLibrary', () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByText('Live library (15)')).toBeTruthy();
+    expect(screen.getByText('Live library (16)')).toBeTruthy();
     expect(screen.getByText('Imported archive (1)')).toBeTruthy();
 
     fireEvent.click(screen.getByText('Imported archive (1)'));

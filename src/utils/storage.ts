@@ -9,6 +9,7 @@ import type {
   VaultEntry,
 } from '../types';
 import { ModelTarget } from '../types';
+import type { StateStorage } from 'zustand/middleware';
 
 /**
  * Error codes used by PromptBridge storage helpers.
@@ -17,6 +18,7 @@ export enum StorageErrorCode {
   CHROME_STORAGE_UNAVAILABLE = 'CHROME_STORAGE_UNAVAILABLE',
   CHROME_STORAGE_GET_FAILED = 'CHROME_STORAGE_GET_FAILED',
   CHROME_STORAGE_SET_FAILED = 'CHROME_STORAGE_SET_FAILED',
+  CHROME_STORAGE_REMOVE_FAILED = 'CHROME_STORAGE_REMOVE_FAILED',
   INDEXED_DB_UNAVAILABLE = 'INDEXED_DB_UNAVAILABLE',
   INDEXED_DB_OPEN_FAILED = 'INDEXED_DB_OPEN_FAILED',
   INDEXED_DB_TRANSACTION_FAILED = 'INDEXED_DB_TRANSACTION_FAILED',
@@ -44,7 +46,7 @@ export class StorageError extends Error {
 }
 
 const HISTORY_DB_NAME = 'promptbridge_history';
-const HISTORY_DB_VERSION = 1;
+const HISTORY_DB_VERSION = 2;
 const HISTORY_STORE_NAME = 'history';
 const HISTORY_TIMESTAMP_INDEX = 'timestamp';
 const HISTORY_INTENT_INDEX = 'intent';
@@ -56,16 +58,30 @@ const TEMPLATES_STORAGE_KEY = 'templates';
 const PINNED_TEMPLATE_IDS_STORAGE_KEY = 'pinnedTemplateIds';
 const DIFF_VIEWER_USAGE_COUNT_STORAGE_KEY = 'diffViewerUsageCount';
 const THEME_PREFERENCE_STORAGE_KEY = 'themePreference';
+export const DEFAULT_OLLAMA_BASE_URL = 'http://localhost:11434/api/generate';
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   activePersonaId: 'default-persona',
-  targetModel: ModelTarget.GROQ,
+  targetModel: ModelTarget.GEMINI,
+  ollamaBaseUrl: DEFAULT_OLLAMA_BASE_URL,
   sessionMemoryDepth: 8,
   vaultTimeoutMinutes: 20,
   theme: 'system',
   abModeEnabled: false,
   enhancedModeEnabled: false,
+  onboardingComplete: false,
 };
+
+/**
+ * Adds v2 history metadata defaults to legacy entries without changing user content.
+ */
+function normalizeHistoryEntry(entry: HistoryEntry): HistoryEntry {
+  return {
+    ...entry,
+    model: entry.model ?? ModelTarget.GEMINI,
+    matchZone: entry.matchZone ?? 'DIRECT',
+  };
+}
 
 /**
  * Wraps unknown failures in a typed storage error.
@@ -100,7 +116,7 @@ function cloneValue<T>(value: T): T {
 /**
  * Returns the requested Chrome storage area or throws a typed error when unavailable.
  */
-function getChromeStorageArea(area: 'local' | 'sync'): chrome.storage.StorageArea {
+function getChromeStorageArea(area: 'local' | 'sync' | 'session'): chrome.storage.StorageArea {
   const storageArea = globalThis.chrome?.storage?.[area];
 
   if (!storageArea) {
@@ -112,6 +128,128 @@ function getChromeStorageArea(area: 'local' | 'sync'): chrome.storage.StorageAre
 
   return storageArea;
 }
+
+/**
+ * Retrieves a typed value from a named Chrome storage area.
+ */
+async function getFromChromeStorageArea<T>(
+  area: 'local' | 'sync' | 'session',
+  key: string,
+): Promise<T | null> {
+  try {
+    const storageArea = getChromeStorageArea(area);
+
+    return await new Promise<T | null>((resolve, reject) => {
+      storageArea.get(key, (items) => {
+        const runtimeError = globalThis.chrome?.runtime?.lastError;
+
+        if (runtimeError) {
+          reject(
+            new StorageError(
+              StorageErrorCode.CHROME_STORAGE_GET_FAILED,
+              runtimeError.message ?? `Failed to read "${key}" from chrome.storage.${area}.`,
+              runtimeError,
+            ),
+          );
+          return;
+        }
+
+        if (!(key in items)) {
+          resolve(null);
+          return;
+        }
+
+        resolve((items[key] as T | undefined) ?? null);
+      });
+    });
+  } catch (error) {
+    throw toStorageError(
+      error,
+      StorageErrorCode.CHROME_STORAGE_GET_FAILED,
+      `Failed to read "${key}" from chrome.storage.${area}.`,
+    );
+  }
+}
+
+/**
+ * Saves a typed value to a named Chrome storage area.
+ */
+async function saveToChromeStorageArea<T>(
+  area: 'local' | 'sync' | 'session',
+  key: string,
+  value: T,
+): Promise<void> {
+  try {
+    const storageArea = getChromeStorageArea(area);
+
+    await new Promise<void>((resolve, reject) => {
+      storageArea.set({ [key]: value }, () => {
+        completeChromeStorageOperation(
+          resolve,
+          reject,
+          undefined,
+          StorageErrorCode.CHROME_STORAGE_SET_FAILED,
+          `Failed to save "${key}" to chrome.storage.${area}.`,
+        );
+      });
+    });
+  } catch (error) {
+    throw toStorageError(
+      error,
+      StorageErrorCode.CHROME_STORAGE_SET_FAILED,
+      `Failed to save "${key}" to chrome.storage.${area}.`,
+    );
+  }
+}
+
+/**
+ * Removes a typed value from a named Chrome storage area.
+ */
+async function removeFromChromeStorageArea(
+  area: 'local' | 'sync' | 'session',
+  key: string,
+): Promise<void> {
+  try {
+    const storageArea = getChromeStorageArea(area);
+
+    await new Promise<void>((resolve, reject) => {
+      storageArea.remove(key, () => {
+        completeChromeStorageOperation(
+          resolve,
+          reject,
+          undefined,
+          StorageErrorCode.CHROME_STORAGE_REMOVE_FAILED,
+          `Failed to remove "${key}" from chrome.storage.${area}.`,
+        );
+      });
+    });
+  } catch (error) {
+    throw toStorageError(
+      error,
+      StorageErrorCode.CHROME_STORAGE_REMOVE_FAILED,
+      `Failed to remove "${key}" from chrome.storage.${area}.`,
+    );
+  }
+}
+
+/**
+ * Builds a Zustand persist storage adapter backed by a Chrome storage area.
+ */
+function createChromePersistStorage(area: 'local' | 'session'): StateStorage {
+  return {
+    getItem: async (name: string): Promise<string | null> =>
+      getFromChromeStorageArea<string>(area, name),
+    setItem: async (name: string, value: string): Promise<void> => {
+      await saveToChromeStorageArea(area, name, value);
+    },
+    removeItem: async (name: string): Promise<void> => {
+      await removeFromChromeStorageArea(area, name);
+    },
+  };
+}
+
+export const chromeLocalStorage = createChromePersistStorage('local');
+export const chromeSessionStorage = createChromePersistStorage('session');
 
 /**
  * Returns the IndexedDB factory or throws a typed error when unavailable.
@@ -322,6 +460,31 @@ export async function initHistoryDB(): Promise<IDBDatabase> {
             unique: false,
           });
         }
+
+        if (request.oldVersion < 2) {
+          const migrationRequest = historyStore.openCursor();
+
+          migrationRequest.onsuccess = () => {
+            const cursor = migrationRequest.result;
+
+            if (!cursor) {
+              return;
+            }
+
+            cursor.update(normalizeHistoryEntry(cursor.value as HistoryEntry));
+            cursor.continue();
+          };
+
+          migrationRequest.onerror = () => {
+            reject(
+              new StorageError(
+                StorageErrorCode.INDEXED_DB_REQUEST_FAILED,
+                migrationRequest.error?.message ?? 'Failed to migrate PromptBridge history.',
+                migrationRequest.error,
+              ),
+            );
+          };
+        }
       };
 
       request.onsuccess = () => {
@@ -393,7 +556,7 @@ export async function saveHistoryEntry(entry: HistoryEntry): Promise<void> {
     const transaction = database.transaction(HISTORY_STORE_NAME, 'readwrite');
     const store = transaction.objectStore(HISTORY_STORE_NAME);
 
-    store.put(entry);
+    store.put(normalizeHistoryEntry(entry));
 
     await waitForTransaction(transaction);
   } catch (error) {
@@ -428,7 +591,7 @@ async function getAllHistoryEntries(): Promise<HistoryEntry[]> {
         const cursor = request.result;
 
         if (cursor) {
-          entries.push(cursor.value as HistoryEntry);
+          entries.push(normalizeHistoryEntry(cursor.value as HistoryEntry));
           cursor.continue();
         }
       };
@@ -505,31 +668,77 @@ export async function getHistoryPage(page: number, pageSize: number): Promise<Hi
 }
 
 /**
+ * Returns all history entries ordered by descending timestamp.
+ */
+export async function getHistory(): Promise<HistoryEntry[]> {
+  return getAllHistoryEntries();
+}
+
+/**
+ * Deletes a single history entry from IndexedDB.
+ */
+export async function deleteHistoryEntry(entryId: string): Promise<void> {
+  if (!entryId.trim()) {
+    throw new StorageError(
+      StorageErrorCode.VALIDATION_FAILED,
+      'A history entry id is required for deletion.',
+    );
+  }
+
+  let database: IDBDatabase | null = null;
+
+  try {
+    database = await initHistoryDB();
+    const transaction = database.transaction(HISTORY_STORE_NAME, 'readwrite');
+    transaction.objectStore(HISTORY_STORE_NAME).delete(entryId);
+    await waitForTransaction(transaction);
+  } catch (error) {
+    throw toStorageError(
+      error,
+      StorageErrorCode.INDEXED_DB_REQUEST_FAILED,
+      'Failed to delete the PromptBridge history entry.',
+    );
+  } finally {
+    database?.close();
+  }
+}
+
+/**
  * Searches history entries by prompt text, response text, template id, intent, or entry id.
  */
-export async function searchHistory(query: string): Promise<HistoryEntry[]> {
+export async function searchHistory(query: string, intent?: HistoryEntry['intent']): Promise<HistoryEntry[]> {
   const normalizedQuery = query.trim().toLowerCase();
 
-  if (!normalizedQuery) {
+  if (!normalizedQuery && !intent) {
     return [];
   }
 
   try {
     const entries = await getAllHistoryEntries();
 
-    return entries.filter((entry) =>
-      [
+    return entries.filter((entry) => {
+      if (intent && entry.intent !== intent) {
+        return false;
+      }
+
+      if (!normalizedQuery) {
+        return true;
+      }
+
+      return [
         entry.id,
         entry.intent,
         entry.templateId,
         entry.enrichedPrompt,
         entry.response,
         entry.confidenceLevel,
+        entry.model ?? '',
+        entry.matchZone ?? '',
       ]
         .join(' ')
         .toLowerCase()
-        .includes(normalizedQuery),
-    );
+        .includes(normalizedQuery);
+    });
   } catch (error) {
     throw toStorageError(
       error,
@@ -578,6 +787,8 @@ export async function exportHistoryAsCSV(): Promise<string> {
       'rating',
       'enrichedPrompt',
       'response',
+      'model',
+      'matchZone',
     ];
 
     const rows = entries.map((entry) =>
@@ -591,6 +802,8 @@ export async function exportHistoryAsCSV(): Promise<string> {
         entry.rating,
         entry.enrichedPrompt,
         entry.response,
+        entry.model ?? '',
+        entry.matchZone ?? '',
       ]
         .map((value) => escapeCsvValue(value))
         .join(','),
@@ -642,7 +855,10 @@ export async function ensureStorageDefaults(): Promise<void> {
  */
 export async function loadAppSettings(): Promise<AppSettings> {
   const settings = await getFromLocal<AppSettings>(SETTINGS_STORAGE_KEY);
-  return settings ?? cloneValue(DEFAULT_APP_SETTINGS);
+  return {
+    ...cloneValue(DEFAULT_APP_SETTINGS),
+    ...(settings ?? {}),
+  };
 }
 
 /**
@@ -656,7 +872,7 @@ export async function saveAppSettings(settings: AppSettings): Promise<void> {
  * Loads the full PromptBridge history list from IndexedDB.
  */
 export async function loadHistory(): Promise<HistoryEntry[]> {
-  return getAllHistoryEntries();
+  return getHistory();
 }
 
 /**
@@ -763,6 +979,13 @@ export async function loadVaultEntries(): Promise<VaultEntry[]> {
 export async function saveVaultEntry(entry: VaultEntry): Promise<void> {
   const currentEntries = await loadVaultEntries();
   await saveToLocal(VAULT_STORAGE_KEY, [entry, ...currentEntries]);
+}
+
+/**
+ * Clears all encrypted vault entries from local storage.
+ */
+export async function clearVault(): Promise<void> {
+  await saveToLocal(VAULT_STORAGE_KEY, [] as VaultEntry[]);
 }
 
 /**

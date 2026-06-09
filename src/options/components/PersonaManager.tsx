@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePromptBridgeStore } from '../../store';
 import type { Persona } from '../../types';
+import { OPTIONS_DIRTY_STATE_EVENT } from '../constants';
 
 export interface PersonaManagerProps {}
 
@@ -75,6 +76,25 @@ function isPersonaArray(value: unknown): value is Persona[] {
   return Array.isArray(value) && value.every((item) => isPersona(item));
 }
 
+function arePersonaFormsEqual(left: PersonaFormState, right: PersonaFormState): boolean {
+  return (
+    left.id === right.id &&
+    left.name === right.name &&
+    left.role === right.role &&
+    left.expertise === right.expertise &&
+    left.preferredStyle === right.preferredStyle &&
+    left.domainContext === right.domainContext
+  );
+}
+
+function notifyOptionsDirtyState(dirty: boolean): void {
+  window.dispatchEvent(
+    new CustomEvent(OPTIONS_DIRTY_STATE_EVENT, {
+      detail: { dirty },
+    }),
+  );
+}
+
 export default function PersonaManager(_props: PersonaManagerProps): JSX.Element {
   const {
     activePersona,
@@ -89,13 +109,26 @@ export default function PersonaManager(_props: PersonaManagerProps): JSX.Element
     'Create focused personas for different domains and switch them instantly.',
   );
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const selectedPersona = useMemo(
+    () =>
+      personas.find((persona) => persona.id === selectedPersonaId) ??
+      activePersona ??
+      personas[0] ??
+      null,
+    [activePersona, personas, selectedPersonaId],
+  );
 
   useEffect(() => {
-    const selectedPersona =
-      personas.find((persona) => persona.id === selectedPersonaId) ?? activePersona ?? personas[0] ?? null;
-
     setFormState(createFormState(selectedPersona));
-  }, [activePersona, personas, selectedPersonaId]);
+  }, [selectedPersona]);
+
+  useEffect(() => {
+    notifyOptionsDirtyState(!arePersonaFormsEqual(formState, createFormState(selectedPersona)));
+
+    return () => {
+      notifyOptionsDirtyState(false);
+    };
+  }, [formState, selectedPersona]);
 
   const handleSavePersona = async (): Promise<void> => {
     const normalizedId = formState.id.trim();

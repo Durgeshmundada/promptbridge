@@ -1,3 +1,4 @@
+import { describe, expect, it, vi, type Mock } from 'vitest';
 import type { PipelineResult } from '../../../types';
 import type { ExecutionEngineError } from '../executionEngine';
 import {
@@ -52,8 +53,8 @@ function createPipelineResult(): PipelineResult {
   };
 }
 
-function installRuntimeMock(responseFactory: () => unknown): jest.Mock {
-  const sendMessageMock = jest.fn(
+function installRuntimeMock(responseFactory: () => unknown): Mock {
+  const sendMessageMock = vi.fn(
     (_message: unknown, callback: (response: unknown) => void): void => {
       callback(responseFactory());
     },

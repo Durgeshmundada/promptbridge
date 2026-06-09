@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import CommandGatePrompt from '../CommandGatePrompt';
 import { usePromptBridgeStore } from '../../../store';
@@ -45,8 +46,8 @@ describe('CommandGatePrompt', () => {
       });
     });
 
-    const onCancel = jest.fn();
-    const onConfirm = jest.fn();
+    const onCancel = vi.fn();
+    const onConfirm = vi.fn();
 
     render(<CommandGatePrompt onCancel={onCancel} onConfirm={onConfirm} />);
 

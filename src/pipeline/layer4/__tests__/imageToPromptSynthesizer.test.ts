@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { ImageType } from '../../../types';
 import { synthesizeImageToPromptContext } from '../imageToPromptSynthesizer';
 

@@ -24,7 +24,25 @@ export enum ModelTarget {
   CLAUDE = 'CLAUDE',
   GEMINI = 'GEMINI',
   LLAMA = 'LLAMA',
+  OLLAMA = 'OLLAMA',
   CUSTOM = 'CUSTOM',
+}
+
+/**
+ * Normalized return shape for individual pipeline stage execution.
+ */
+export interface StageResult<T = unknown> {
+  ok: boolean;
+  data?: T;
+  error?: string;
+}
+
+/**
+ * Tracks first-run onboarding progress for the popup walkthrough.
+ */
+export interface OnboardingState {
+  complete: boolean;
+  step: number;
 }
 
 /**
@@ -149,7 +167,8 @@ export interface PromptTemplate {
 }
 
 /**
- * Indicates whether a prompt directly matched, partially matched, or required a generated template.
+ * Indicates whether a prompt directly matched or required generation.
+ * `PARTIAL` remains in the shared type for backward compatibility with older UI states.
  */
 export type MatchZone = 'DIRECT' | 'PARTIAL' | 'GENERATE';
 
@@ -263,6 +282,7 @@ export interface PipelineResult {
   matchScore: number;
   matchBadge: string;
   isNewTemplate: boolean;
+  model?: ModelTarget;
 }
 
 /**
@@ -290,6 +310,8 @@ export interface HistoryEntry {
   rating: RatingValue | null;
   enrichedPrompt: string;
   response: string;
+  model?: ModelTarget;
+  matchZone?: MatchZone;
 }
 
 /**
@@ -308,11 +330,13 @@ export interface VaultEntry {
 export interface AppSettings {
   activePersonaId: string;
   targetModel: ModelTarget;
+  ollamaBaseUrl?: string;
   sessionMemoryDepth: number;
   vaultTimeoutMinutes: number;
   theme: ThemePreference;
   abModeEnabled: boolean;
   enhancedModeEnabled: boolean;
+  onboardingComplete?: boolean;
 }
 
 /**
@@ -321,6 +345,7 @@ export interface AppSettings {
 export interface ApiPayload {
   model: ModelTarget;
   prompt: string;
+  originalPrompt?: string;
   systemPrompt?: string;
   imageData?: string;
   maxTokens: number;

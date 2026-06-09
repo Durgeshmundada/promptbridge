@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { evaluateScopeConfirmation } from '../scopeConfirmation';
 
 describe('evaluateScopeConfirmation', () => {

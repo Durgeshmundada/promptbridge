@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { IntentType } from '../../../types';
 import type { IntentClassification } from '../../../types';
 import {
@@ -63,6 +64,15 @@ describe('templateMatcher', () => {
     expect(templates[0].id).toBe('step-by-step-explain');
   });
 
+  it('selects the general concept explanation template for non-programming explanations', () => {
+    const templates = matchTemplates(
+      createClassification(IntentType.QUESTION_CONCEPTUAL, 'concept-explanation'),
+      'Explain pipelining in CPUs for a beginner.',
+    );
+
+    expect(templates[0].id).toBe('concept-explain');
+  });
+
   it('boosts pinned templates so they can be deliberately applied on the next run', () => {
     const prioritizedTemplates = prioritizePinnedTemplates(TEMPLATE_LIBRARY, ['research-synthesis']);
     const templates = matchTemplates(
@@ -74,7 +84,7 @@ describe('templateMatcher', () => {
     expect(templates[0].id).toBe('research-synthesis');
   });
 
-  it('ships exactly 15 default templates', () => {
-    expect(TEMPLATE_LIBRARY).toHaveLength(15);
+  it('ships exactly 16 default templates', () => {
+    expect(TEMPLATE_LIBRARY).toHaveLength(16);
   });
 });

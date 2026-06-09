@@ -15,8 +15,10 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
-    "types": ["chrome", "jest", "node"],
+    "types": ["chrome", "vitest/globals", "node"],
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
     "noEmit": true
   },
-  "include": ["src", "scripts", "server", "vite.config.ts"]
+  "include": ["src", "scripts", "server", "vite.config.ts", "vitest.config.ts", "tailwind.config.ts"]
 }

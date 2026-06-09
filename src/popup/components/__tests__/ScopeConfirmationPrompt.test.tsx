@@ -1,3 +1,4 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import ScopeConfirmationPrompt from '../ScopeConfirmationPrompt';
 import { usePromptBridgeStore } from '../../../store';
@@ -45,7 +46,7 @@ describe('ScopeConfirmationPrompt', () => {
       });
     });
 
-    const onSelectOption = jest.fn();
+    const onSelectOption = vi.fn();
 
     render(<ScopeConfirmationPrompt onSelectOption={onSelectOption} />);
 

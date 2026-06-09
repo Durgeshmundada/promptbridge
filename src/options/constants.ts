@@ -9,13 +9,14 @@ export interface OptionsTabDefinition {
 }
 
 export interface ApiKeyFieldDefinition {
-  id: 'groqApiKey' | 'openaiApiKey' | 'anthropicApiKey' | 'geminiApiKey';
+  id: 'geminiApiKey';
   label: string;
   providerName: string;
   placeholder: string;
 }
 
 export const OPTIONS_ACTIVE_TAB_STORAGE_KEY = 'promptbridge.options.activeTab';
+export const OPTIONS_DIRTY_STATE_EVENT = 'promptbridge:options-dirty-state';
 
 export const OPTIONS_TABS: readonly OptionsTabDefinition[] = [
   {
@@ -45,27 +46,12 @@ export const SETTINGS_MODEL_OPTIONS: readonly ModelTarget[] = [
   ModelTarget.GPT4O,
   ModelTarget.CLAUDE,
   ModelTarget.GEMINI,
+  ModelTarget.LLAMA,
+  ModelTarget.OLLAMA,
+  ModelTarget.CUSTOM,
 ] as const;
 
 export const API_KEY_FIELDS: readonly ApiKeyFieldDefinition[] = [
-  {
-    id: 'groqApiKey',
-    label: 'Groq API key',
-    providerName: 'Groq',
-    placeholder: 'gsk_...',
-  },
-  {
-    id: 'openaiApiKey',
-    label: 'OpenAI API key',
-    providerName: 'OpenAI',
-    placeholder: 'sk-...',
-  },
-  {
-    id: 'anthropicApiKey',
-    label: 'Anthropic API key',
-    providerName: 'Anthropic',
-    placeholder: 'sk-ant-...',
-  },
   {
     id: 'geminiApiKey',
     label: 'Gemini API key',

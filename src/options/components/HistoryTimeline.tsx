@@ -1,6 +1,6 @@
 import { useDeferredValue, useEffect, useState } from 'react';
 import { usePromptBridgeStore } from '../../store';
-import { RatingValue } from '../../types';
+import { IntentType, RatingValue } from '../../types';
 import type { HistoryEntry, PromptTemplate } from '../../types';
 import {
   exportHistoryAsCSV,
@@ -13,6 +13,7 @@ import {
 export interface HistoryTimelineProps {}
 
 const PAGE_SIZE = 20;
+const INTENT_FILTER_OPTIONS = Object.values(IntentType);
 
 function downloadTextFile(fileName: string, content: string, contentType: string): void {
   const blob = new Blob([content], { type: contentType });
@@ -60,6 +61,7 @@ export default function HistoryTimeline(_props: HistoryTimelineProps): JSX.Eleme
   const [expandedEntryIds, setExpandedEntryIds] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedIntent, setSelectedIntent] = useState<IntentType | ''>('');
   const [statusMessage, setStatusMessage] = useState(
     'Browse prompt history from IndexedDB and export the timeline when you need an archive.',
   );
@@ -73,16 +75,23 @@ export default function HistoryTimeline(_props: HistoryTimelineProps): JSX.Eleme
 
       try {
         const normalizedQuery = deferredSearchQuery.trim();
+        const intentFilter = selectedIntent || undefined;
 
-        if (normalizedQuery) {
-          const matchingEntries = await searchHistory(normalizedQuery);
+        if (normalizedQuery || intentFilter) {
+          const matchingEntries = await searchHistory(normalizedQuery, intentFilter);
           const startIndex = (page - 1) * PAGE_SIZE;
           const nextEntries = matchingEntries.slice(startIndex, startIndex + PAGE_SIZE);
+          const filterSummary = [
+            normalizedQuery ? `"${normalizedQuery}"` : null,
+            intentFilter ? intentFilter.replace(/_/g, ' ') : null,
+          ]
+            .filter(Boolean)
+            .join(' and ');
 
           setEntries(nextEntries);
           setTotalCount(matchingEntries.length);
           setStatusMessage(
-            `Showing ${matchingEntries.length.toString()} matching history entries for "${normalizedQuery}".`,
+            `Showing ${matchingEntries.length.toString()} matching history entries for ${filterSummary}.`,
           );
           return;
         }
@@ -104,7 +113,7 @@ export default function HistoryTimeline(_props: HistoryTimelineProps): JSX.Eleme
     };
 
     void hydrateHistory();
-  }, [deferredSearchQuery, page, setHistory]);
+  }, [deferredSearchQuery, page, selectedIntent, setHistory]);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
@@ -155,16 +164,33 @@ export default function HistoryTimeline(_props: HistoryTimelineProps): JSX.Eleme
       </div>
 
       <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <input
-          className="w-full rounded-[18px] border border-[var(--pb-border)] bg-[var(--pb-surface-strong)] px-4 py-3 text-sm text-[var(--pb-text)] outline-none transition placeholder:text-[var(--pb-text-subtle)] focus:border-[var(--pb-border-strong)] lg:max-w-md"
-          onChange={(event) => {
-            setPage(1);
-            setSearchQuery(event.target.value);
-          }}
-          placeholder="Search prompt text, response content, or template id"
-          type="search"
-          value={searchQuery}
-        />
+        <div className="grid w-full gap-3 lg:max-w-3xl lg:grid-cols-[minmax(0,1fr)_minmax(220px,0.45fr)]">
+          <input
+            className="w-full rounded-[18px] border border-[var(--pb-border)] bg-[var(--pb-surface-strong)] px-4 py-3 text-sm text-[var(--pb-text)] outline-none transition placeholder:text-[var(--pb-text-subtle)] focus:border-[var(--pb-border-strong)]"
+            onChange={(event) => {
+              setPage(1);
+              setSearchQuery(event.target.value);
+            }}
+            placeholder="Search prompt text, response content, or template id"
+            type="search"
+            value={searchQuery}
+          />
+          <select
+            className="w-full rounded-[18px] border border-[var(--pb-border)] bg-[var(--pb-surface-strong)] px-4 py-3 text-sm text-[var(--pb-text)] outline-none transition focus:border-[var(--pb-border-strong)]"
+            onChange={(event) => {
+              setPage(1);
+              setSelectedIntent(event.target.value as IntentType | '');
+            }}
+            value={selectedIntent}
+          >
+            <option value="">All intents</option>
+            {INTENT_FILTER_OPTIONS.map((intent) => (
+              <option key={intent} value={intent}>
+                {intent.replace(/_/g, ' ')}
+              </option>
+            ))}
+          </select>
+        </div>
         <p className="m-0 text-sm text-[var(--pb-text-soft)]">{statusMessage}</p>
       </div>
 

@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { GapSeverity } from '../../../types';
 import type { KnowledgeGap } from '../../../types';
 import { generateMicroQuestion } from '../microQuestionEngine';

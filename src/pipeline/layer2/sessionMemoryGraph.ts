@@ -8,8 +8,9 @@ const VERSION_PATTERN = /\bv?\d+(?:\.\d+){1,3}\b/g;
 const ACRONYM_PATTERN = /\b[A-Z]{2,}\b/g;
 const IDENTIFIER_PATTERN = /\b[A-Za-z]+(?:[A-Z][a-z0-9]+)+\b/g;
 const PROPER_NAME_PATTERN =
-  /\b(?:React|TypeScript|JavaScript|Python|Node\.js|Next\.js|Vue|Angular|PromptBridge|OpenAI|Anthropic|Gemini|Postgres|MongoDB)\b/gi;
+  /\b(?:React|TypeScript|JavaScript|Python|Node\.js|Next\.js|Vue|Angular|OpenAI|Anthropic|Gemini|Postgres|MongoDB)\b/gi;
 const QUOTED_PHRASE_PATTERN = /["']([^"']{3,60})["']/g;
+const IGNORED_ENTITIES = new Set(['promptbridge']);
 
 function unique(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
@@ -27,18 +28,25 @@ function normalizeEntity(entity: string): string {
   return entity.toLowerCase();
 }
 
+function stripPromptingBoilerplate(text: string): string {
+  return text.replace(/\n{2,}PromptBridge Output Contract:[\s\S]*$/i, '').trim();
+}
+
 function extractKeyEntitiesFromText(text: string): string[] {
+  const normalizedText = stripPromptingBoilerplate(text);
   const combinedEntities = [
-    ...extractMatches(FILE_NAME_PATTERN, text),
-    ...extractMatches(URL_PATTERN, text),
-    ...extractMatches(VERSION_PATTERN, text),
-    ...extractMatches(ACRONYM_PATTERN, text),
-    ...extractMatches(IDENTIFIER_PATTERN, text),
-    ...extractMatches(PROPER_NAME_PATTERN, text),
-    ...extractMatches(QUOTED_PHRASE_PATTERN, text, 1),
+    ...extractMatches(FILE_NAME_PATTERN, normalizedText),
+    ...extractMatches(URL_PATTERN, normalizedText),
+    ...extractMatches(VERSION_PATTERN, normalizedText),
+    ...extractMatches(ACRONYM_PATTERN, normalizedText),
+    ...extractMatches(IDENTIFIER_PATTERN, normalizedText),
+    ...extractMatches(PROPER_NAME_PATTERN, normalizedText),
+    ...extractMatches(QUOTED_PHRASE_PATTERN, normalizedText, 1),
   ];
 
-  return unique(combinedEntities).slice(0, 12);
+  return unique(combinedEntities)
+    .filter((entity) => !IGNORED_ENTITIES.has(normalizeEntity(entity)))
+    .slice(0, 12);
 }
 
 function normalizeNode(node: SessionNode): SessionNode {

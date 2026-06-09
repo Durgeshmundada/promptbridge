@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { IntentType } from '../../../types';
 import { evaluateCommandGate } from '../commandGate';
 

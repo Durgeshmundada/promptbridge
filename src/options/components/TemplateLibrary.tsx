@@ -3,6 +3,7 @@ import { usePromptBridgeStore } from '../../store';
 import { IntentType } from '../../types';
 import type { PromptTemplate } from '../../types';
 import { loadTemplateCatalogFromRuntime } from '../../utils/templateServiceRuntime';
+import { OPTIONS_DIRTY_STATE_EVENT } from '../constants';
 
 export interface TemplateLibraryProps {}
 
@@ -83,6 +84,24 @@ function isLiveTemplate(template: PromptTemplate): boolean {
   return !isArchiveTemplate(template);
 }
 
+function isTemplateFormDirty(formState: TemplateFormState): boolean {
+  return (
+    formState.name !== EMPTY_TEMPLATE_FORM.name ||
+    formState.intentType !== EMPTY_TEMPLATE_FORM.intentType ||
+    formState.template !== EMPTY_TEMPLATE_FORM.template ||
+    formState.description !== EMPTY_TEMPLATE_FORM.description ||
+    formState.tags !== EMPTY_TEMPLATE_FORM.tags
+  );
+}
+
+function notifyOptionsDirtyState(dirty: boolean): void {
+  window.dispatchEvent(
+    new CustomEvent(OPTIONS_DIRTY_STATE_EVENT, {
+      detail: { dirty },
+    }),
+  );
+}
+
 export default function TemplateLibrary(_props: TemplateLibraryProps): JSX.Element {
   const {
     pinnedTemplateIds,
@@ -121,6 +140,14 @@ export default function TemplateLibrary(_props: TemplateLibraryProps): JSX.Eleme
       isCancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    notifyOptionsDirtyState(isCreating && isTemplateFormDirty(formState));
+
+    return () => {
+      notifyOptionsDirtyState(false);
+    };
+  }, [formState, isCreating]);
 
   const visibleTemplates = viewMode === 'archive'
     ? archiveTemplates

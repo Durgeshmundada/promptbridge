@@ -1,9 +1,16 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
+import type * as StorageModule from '../../../utils/storage';
 
-jest.mock('../../../utils/storage', () => ({
-  loadDiffViewerUsageCount: jest.fn().mockResolvedValue(0),
-  saveDiffViewerUsageCount: jest.fn().mockResolvedValue(undefined),
-}));
+vi.mock('../../../utils/storage', async () => {
+  const actual = await vi.importActual<typeof StorageModule>('../../../utils/storage');
+
+  return {
+    ...actual,
+    loadDiffViewerUsageCount: vi.fn().mockResolvedValue(0),
+    saveDiffViewerUsageCount: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 import DiffViewer from '../DiffViewer';
 import { usePromptBridgeStore } from '../../../store';

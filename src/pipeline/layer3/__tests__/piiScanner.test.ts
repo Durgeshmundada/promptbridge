@@ -1,16 +1,17 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { scanForPii } from '../piiScanner';
 
 describe('scanForPii', () => {
   beforeEach(() => {
-    jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    vi.spyOn(console, 'info').mockImplementation(() => undefined);
   });
 
   afterEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
   });
 
   it('redacts email and api keys without exposing raw values in logs', () => {
-    const infoSpy = jest.spyOn(console, 'info');
+    const infoSpy = vi.spyOn(console, 'info');
     const rawEmail = 'rahul@company.com';
     const rawApiKey = 'sk-abc123xyz456def789ghi012jkl345mno678';
 
@@ -42,7 +43,7 @@ describe('scanForPii', () => {
   ] as const)(
     'redacts %s values as standalone checks',
     (_label, prompt, replacement, expectedType) => {
-      const infoSpy = jest.spyOn(console, 'info');
+      const infoSpy = vi.spyOn(console, 'info');
       const result = scanForPii(prompt);
 
       expect(result.sanitized).toContain(replacement);

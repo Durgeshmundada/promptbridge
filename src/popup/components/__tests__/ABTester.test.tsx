@@ -1,9 +1,10 @@
+import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import ABTester from '../ABTester';
 
 describe('ABTester', () => {
   it('renders both prompt variants side by side and lets the user choose a winner', () => {
-    const chooseWinner = jest.fn();
+    const chooseWinner = vi.fn();
 
     render(
       <ABTester
